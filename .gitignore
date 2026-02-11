@@ -17,6 +17,8 @@
 *.qm
 .#*
 *.*#
+.idea
+.vs
 core
 !core/
 tags
@@ -80,3 +82,5 @@ CMakeLists.txt.user*
 .rcc/
 .uic/
 /build*/
+out
+build
