@@ -1,69 +1,86 @@
-#ifdef _WIN32
-#include <windows.h>
-#endif
-
+#include "view/TextEditorWidget.h"
+#include "core/Document.h"
+#include "core/Paragraph.h"
+#include "core/Run.h"
 #include <QApplication>
 #include <QMainWindow>
-#include <QLabel>
-#include <QVBoxLayout>
-#include <QWidget>
-#include "TextInputWidget.h"
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
+#include <QDebug>
 
 int main(int argc, char *argv[])
 {
-    QApplication app(argc, argv);
-
-    // 基础输出
-    qDebug() << "这是Qt项目的控制台输出";
-
-    // 检测 Qt 版本
-    QString versionInfo;
-    QString detailedInfo;
+    qDebug() << "Starting application...";
     
-    int qtMajorVersion = QT_VERSION_MAJOR;
-    int qtMinorVersion = QT_VERSION_MINOR;
-    int qtPatchVersion = QT_VERSION_PATCH;
+    QApplication a(argc, argv);
     
-    if (qtMajorVersion == 5) {
-        versionInfo = QString("Qt5");
-        detailedInfo = QString("Qt5.%1.%2").arg(qtMinorVersion).arg(qtPatchVersion);
-    } else if (qtMajorVersion == 6) {
-        versionInfo = QString("Qt6");
-        detailedInfo = QString("Qt6.%1.%2").arg(qtMinorVersion).arg(qtPatchVersion);
-    } else {
-        versionInfo = QString("Qt%1").arg(qtMajorVersion);
-        detailedInfo = QString("Qt%1.%2.%3").arg(qtMajorVersion).arg(qtMinorVersion).arg(qtPatchVersion);
-    }
+    qDebug() << "Creating main window...";
+    // 创建主窗口
+    QMainWindow mainWindow;
+    mainWindow.setWindowTitle("MathEditor");
+    mainWindow.resize(800, 600);
     
-    QMainWindow window;
-
-
-    window.setWindowTitle(QString("图形视图文本输入示例 - %1 (版本: %2)").arg(versionInfo).arg(detailedInfo));
-    window.resize(800, 600);
+    qDebug() << "Creating menu bar...";
+    // 创建菜单栏
+    QMenuBar *menuBar = mainWindow.menuBar();
     
-    // 创建中央部件
-    QWidget *centralWidget = new QWidget(&window);
-    QVBoxLayout *layout = new QVBoxLayout(centralWidget);
+    // 文件菜单
+    QMenu *fileMenu = menuBar->addMenu("文件");
+    QAction *newAction = fileMenu->addAction("新建");
+    QAction *openAction = fileMenu->addAction("打开");
+    QAction *saveAction = fileMenu->addAction("保存");
+    fileMenu->addSeparator();
+    QAction *exitAction = fileMenu->addAction("退出");
     
-    // 添加版本信息标签
-    QLabel *versionLabel = new QLabel(QString("当前 Qt 版本: %1").arg(detailedInfo), centralWidget);
-    versionLabel->setAlignment(Qt::AlignCenter);
-    versionLabel->setStyleSheet("font-size: 16px; font-weight: bold; color: blue; padding: 10px;");
-    layout->addWidget(versionLabel);
+    // 编辑菜单
+    QMenu *editMenu = menuBar->addMenu("编辑");
+    QAction *undoAction = editMenu->addAction("撤销");
+    QAction *redoAction = editMenu->addAction("重做");
+    editMenu->addSeparator();
+    QAction *cutAction = editMenu->addAction("剪切");
+    QAction *copyAction = editMenu->addAction("复制");
+    QAction *pasteAction = editMenu->addAction("粘贴");
+    editMenu->addSeparator();
+    QAction *selectAllAction = editMenu->addAction("全选");
     
-    // 添加分隔线
-    QFrame *line = new QFrame(centralWidget);
-    line->setFrameShape(QFrame::HLine);
-    line->setFrameShadow(QFrame::Sunken);
-    layout->addWidget(line);
+    qDebug() << "Creating document...";
+    // 创建文档
+    Document *document = new Document();
     
-    // 添加文本输入部件
-    TextInputWidget *textInputWidget = new TextInputWidget(centralWidget);
-    layout->addWidget(textInputWidget);
+    qDebug() << "Adding paragraphs...";
+    // 添加一些示例文本
+    Paragraph paragraph1;
+    paragraph1.setText("Hello, this is a test document.");
+    document->addParagraph(paragraph1);
     
-    window.setCentralWidget(centralWidget);
+    Paragraph paragraph2;
+    paragraph2.setText("This is the second paragraph.");
+    document->addParagraph(paragraph2);
     
-    window.show();
+    qDebug() << "Creating TextEditorWidget...";
+    // 创建文本编辑器部件
+    TextEditorWidget *editorWidget = new TextEditorWidget();
+    editorWidget->setDocument(document);
     
-    return app.exec();
+    qDebug() << "Setting central widget...";
+    // 设置中央部件
+    mainWindow.setCentralWidget(editorWidget);
+    
+    // 连接信号槽
+    QObject::connect(exitAction, &QAction::triggered, &a, &QApplication::quit);
+    
+    qDebug() << "Showing main window...";
+    // 显示主窗口
+    mainWindow.show();
+    
+    qDebug() << "Entering event loop...";
+    int result = a.exec();
+    
+    qDebug() << "Exiting event loop with result:" << result;
+    // 清理资源
+    delete document;
+    
+    qDebug() << "Application exiting...";
+    return result;
 }

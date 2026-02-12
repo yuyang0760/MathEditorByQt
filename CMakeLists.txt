@@ -21,17 +21,55 @@ find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 # 根据找到的 Qt 版本查找对应的主要组件
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
-# 定义项目源文件列表 - 自动收集方式
-# 使用 GLOB 模式自动匹配所有相关文件
-file(GLOB PROJECT_SOURCES
-    "*.cpp"      # 收集所有 .cpp 文件
-    "*.h"        # 收集所有 .h 文件
-    "*.ui"       # 收集所有 .ui 文件
+# 设置包含目录
+include_directories(
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include/core
+    ${CMAKE_SOURCE_DIR}/include/view
+    ${CMAKE_SOURCE_DIR}/include/controller
+    ${CMAKE_SOURCE_DIR}/include/io
 )
 
-# 如果需要排除某些文件，可以使用 GLOB_RECURSE 或 LIST_FILTER
-# 示例：排除测试文件
-# list(FILTER PROJECT_SOURCES EXCLUDE REGEX "test_.*")
+# 定义项目源文件列表 - 明确指定方式
+# 明确列出所有源文件和头文件，确保AutoMoc能正确找到所有文件
+set(PROJECT_SOURCES
+    # 主文件
+    main.cpp
+    
+    # 核心模块
+    src/core/Format.cpp
+    src/core/Run.cpp
+    src/core/Paragraph.cpp
+    src/core/Document.cpp
+    src/core/Selection.cpp
+    include/core/Format.h
+    include/core/Run.h
+    include/core/Paragraph.h
+    include/core/Document.h
+    include/core/Selection.h
+    
+    # 视图模块
+    src/view/Cursor.cpp
+    src/view/DocumentView.cpp
+    src/view/TextEditorWidget.cpp
+    include/view/Cursor.h
+    include/view/DocumentView.h
+    include/view/TextEditorWidget.h
+    
+    # 控制器模块
+    src/controller/DocumentController.cpp
+    src/controller/SelectionController.cpp
+    src/controller/InputController.cpp
+    include/controller/DocumentController.h
+    include/controller/SelectionController.h
+    include/controller/InputController.h
+    
+    # 输入输出模块
+    src/io/DocumentReader.cpp
+    src/io/DocumentWriter.cpp
+    include/io/DocumentReader.h
+    include/io/DocumentWriter.h
+)
 
 # 根据 Qt 版本和平台选择不同的构建方式
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -43,7 +81,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     # Android 平台 Qt6 的特殊配置说明（已注释）
     #    set_property(TARGET MathEditorByQt APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
     #                 ${CMAKE_CURRENT_SOURCE_DIR}/android)
-    # 更多信息请参考：https://doc.qt.io/qt-6/qt-add-executable.html#target-creation
+    # 更多信息请参考： `https://doc.qt.io/qt-6/qt-add-executable.html#target-creation` 
 else()
     # Qt5 版本的构建逻辑
     if(ANDROID)
