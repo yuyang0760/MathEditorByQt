@@ -1,24 +1,45 @@
+// ============================================================================
+// DocumentView.cpp
+// 文档视图类的实现文件
+// 负责文档渲染、用户交互和输入法支持
+// ============================================================================
+
 #include "view/DocumentView.h"
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QFontMetrics>
+#include <QGuiApplication>
+#include <QInputMethod>
 
+/**
+ * @brief 构造函数
+ * @param parent 父窗口部件
+ */
 DocumentView::DocumentView(QWidget *parent)
     : QGraphicsView(parent),
       m_scene(new QGraphicsScene(this)),
       m_document(nullptr),
       m_cursor(new Cursor(this)),
-      m_selecting(false)
+      m_selecting(false),
+      m_composingTextItem(nullptr)
 {
     setScene(m_scene);
     m_scene->addItem(m_cursor);
     setDragMode(NoDrag);
     setRenderHint(QPainter::Antialiasing);
     
+    // 启用输入法支持
+    setAttribute(Qt::WA_InputMethodEnabled, true);
+    setFocusPolicy(Qt::StrongFocus);
+    
     // 设置一个默认场景矩形，防止显示问题
     m_scene->setSceneRect(0, 0, 800, 600);
 }
 
+/**
+ * @brief 设置文档
+ * @param document 文档指针
+ */
 void DocumentView::setDocument(Document *document)
 {
     m_document = document;
@@ -34,27 +55,47 @@ void DocumentView::setDocument(Document *document)
     updateLayout();
 }
 
+/**
+ * @brief 获取文档
+ * @return 文档指针
+ */
 Document *DocumentView::document() const
 {
     return m_document;
 }
 
+/**
+ * @brief 设置选择
+ * @param selection 选择范围
+ */
 void DocumentView::setSelection(const Selection &selection)
 {
     m_selection = selection;
     updateLayout();
 }
 
+/**
+ * @brief 获取选择
+ * @return 选择范围
+ */
 Selection DocumentView::selection() const
 {
     return m_selection;
 }
 
+/**
+ * @brief 获取光标
+ * @return 光标指针
+ */
 Cursor *DocumentView::cursor() const
 {
     return m_cursor;
 }
 
+/**
+ * @brief 更新布局
+ * 重新布局文档内容并更新光标位置
+ */
 void DocumentView::updateLayout()
 {
     if (!m_scene || !m_document)
@@ -91,6 +132,8 @@ void DocumentView::updateLayout()
     {
         QPoint point = pointFromPosition(m_cursor->position());
         m_cursor->setPos(point.x(), point.y());
+        // 通知输入法系统光标位置已更新
+        updateInputMethod();
     }
     
     // 确保场景矩形至少有一个最小尺寸，防止窗口显示异常
@@ -101,6 +144,9 @@ void DocumentView::updateLayout()
     m_scene->setSceneRect(sceneRect);
 }
 
+/**
+ * @brief 确保光标可见
+ */
 void DocumentView::ensureCursorVisible()
 {
     if (m_cursor)
@@ -111,12 +157,19 @@ void DocumentView::ensureCursorVisible()
     }
 }
 
+/**
+ * @brief 鼠标按下事件处理
+ * @param event 鼠标事件
+ */
 void DocumentView::mousePressEvent(QMouseEvent *event)
 {
     QGraphicsView::mousePressEvent(event);
     
     if (event->button() == Qt::LeftButton)
     {
+        // 确保获得焦点
+        setFocus();
+        
         QPoint point = event->pos();
         m_selectionStart = positionFromPoint(point);
         m_selecting = true;
@@ -129,9 +182,15 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
         m_cursor->setPosition(m_selectionStart);
         m_cursor->show();
         m_cursor->stopBlinking();
+        // 通知输入法系统光标位置已更新
+        updateInputMethod();
     }
 }
 
+/**
+ * @brief 鼠标移动事件处理
+ * @param event 鼠标事件
+ */
 void DocumentView::mouseMoveEvent(QMouseEvent *event)
 {
     QGraphicsView::mouseMoveEvent(event);
@@ -147,6 +206,10 @@ void DocumentView::mouseMoveEvent(QMouseEvent *event)
     }
 }
 
+/**
+ * @brief 鼠标释放事件处理
+ * @param event 鼠标事件
+ */
 void DocumentView::mouseReleaseEvent(QMouseEvent *event)
 {
     QGraphicsView::mouseReleaseEvent(event);
@@ -155,9 +218,17 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event)
     {
         m_selecting = false;
         m_cursor->startBlinking();
+        
+        // 确保获得焦点，以便输入法能够正常工作
+        setFocus();
+        updateInputMethod();
     }
 }
 
+/**
+ * @brief 键盘按下事件处理
+ * @param event 键盘事件
+ */
 void DocumentView::keyPressEvent(QKeyEvent *event)
 {
     QGraphicsView::keyPressEvent(event);
@@ -166,6 +237,11 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
     // 这里可以添加具体的键盘事件处理逻辑
 }
 
+/**
+ * @brief 从点转换为位置
+ * @param point 点坐标
+ * @return 文档位置
+ */
 Selection::Position DocumentView::positionFromPoint(const QPoint &point) const
 {
     // 简单的点到位置转换
@@ -204,6 +280,11 @@ Selection::Position DocumentView::positionFromPoint(const QPoint &point) const
     return pos;
 }
 
+/**
+ * @brief 从位置转换为点
+ * @param position 文档位置
+ * @return 点坐标
+ */
 QPoint DocumentView::pointFromPosition(const Selection::Position &position) const
 {
     // 简单的位置到点转换
@@ -212,4 +293,155 @@ QPoint DocumentView::pointFromPosition(const Selection::Position &position) cons
     qreal y = 10 + position.paragraph * 20;
     
     return QPoint(static_cast<int>(x), static_cast<int>(y));
+}
+
+/**
+ * @brief 输入法查询
+ * @param query 查询类型
+ * @return 查询结果
+ */
+QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const
+{
+    if (!m_cursor)
+        return QGraphicsView::inputMethodQuery(query);
+    
+    switch (query)
+    {
+    case Qt::ImCursorRectangle:
+    {
+        // 获取光标位置（场景坐标）
+        QPoint cursorPos = pointFromPosition(m_cursor->position());
+        // 转换为视图坐标
+        QPoint viewPos = mapFromScene(cursorPos);
+        // 光标矩形（宽度2像素，高度20像素）
+        return QRect(viewPos.x(), viewPos.y(), 2, 20);
+    }
+    case Qt::ImFont:
+    {
+        // 返回默认字体
+        QFont font;
+        font.setFamily("Microsoft YaHei");
+        font.setPointSize(12);
+        return font;
+    }
+    case Qt::ImCursorPosition:
+    {
+        // 返回光标在段落中的位置
+        // 这里简化处理，返回段落内的字符位置
+        return m_cursor->position().position;
+    }
+    case Qt::ImSurroundingText:
+    {
+        // 返回光标周围的文本（当前段落文本）
+        if (m_document && m_cursor->position().paragraph < m_document->paragraphCount())
+        {
+            Paragraph paragraph = m_document->paragraph(m_cursor->position().paragraph);
+            return paragraph.text();
+        }
+        return QString();
+    }
+    case Qt::ImAnchorPosition:
+        // 锚点位置（通常与光标位置相同）
+        return m_cursor->position().position;
+    case Qt::ImMaximumTextLength:
+        // 最大文本长度
+        return 1000;
+    case Qt::ImHints:
+        // 输入法提示：允许多行文本
+        return QVariant(static_cast<int>(Qt::ImhMultiLine));
+    default:
+        return QGraphicsView::inputMethodQuery(query);
+    }
+}
+
+/**
+ * @brief 更新输入法
+ * 通知输入法系统更新查询
+ */
+void DocumentView::updateInputMethod()
+{
+    // 通知输入法系统更新查询
+    QInputMethod *im = QGuiApplication::inputMethod();
+    if (im) {
+        im->update(Qt::ImQueryAll);
+    }
+}
+
+/**
+ * @brief 公开的输入法查询
+ * @param query 查询类型
+ * @return 查询结果
+ */
+QVariant DocumentView::inputMethodQueryPublic(Qt::InputMethodQuery query) const
+{
+    return inputMethodQuery(query);
+}
+
+/**
+ * @brief 绘制组合文本
+ * @param text 组合文本
+ * @param position 位置
+ */
+void DocumentView::drawComposingText(const QString &text, const Selection::Position &position)
+{
+    // 清除之前的组合文本
+    clearComposingText();
+    
+    if (text.isEmpty()) {
+        return;
+    }
+    
+    // 创建组合文本显示项
+    m_composingTextItem = new QGraphicsTextItem(text);
+    
+    // 设置组合文本样式（通常为带下划线的灰色文本）
+    QFont font = m_composingTextItem->font();
+    font.setFamily("Microsoft YaHei");
+    font.setPointSize(12);
+    m_composingTextItem->setFont(font);
+    
+    QColor composingColor(128, 128, 128); // 灰色
+    m_composingTextItem->setDefaultTextColor(composingColor);
+    
+    // 设置位置（在光标位置显示）
+    QPoint pos = pointFromPosition(position);
+    m_composingTextItem->setPos(pos.x(), pos.y());
+    
+    // 添加到场景
+    m_scene->addItem(m_composingTextItem);
+    
+    // 保存当前组合文本
+    m_currentComposingText = text;
+}
+
+/**
+ * @brief 清除组合文本
+ */
+void DocumentView::clearComposingText()
+{
+    if (m_composingTextItem) {
+        m_scene->removeItem(m_composingTextItem);
+        delete m_composingTextItem;
+        m_composingTextItem = nullptr;
+    }
+    m_currentComposingText.clear();
+}
+
+/**
+ * @brief 显示组合文本
+ * @param text 组合文本
+ */
+void DocumentView::showComposingText(const QString &text)
+{
+    if (m_cursor && !text.isEmpty()) {
+        drawComposingText(text, m_cursor->position());
+    }
+}
+
+/**
+ * @brief 隐藏组合文本
+ */
+void DocumentView::hideComposingText()
+{
+    clearComposingText();
 }

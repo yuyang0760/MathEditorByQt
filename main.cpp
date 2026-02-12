@@ -1,3 +1,9 @@
+// ============================================================================
+// main.cpp
+// 主函数文件
+// 应用程序的入口点，负责创建主窗口和初始化编辑器
+// ============================================================================
+
 #include "view/TextEditorWidget.h"
 #include "core/Document.h"
 #include "core/Paragraph.h"
@@ -9,10 +15,17 @@
 #include <QAction>
 #include <QDebug>
 
+/**
+ * @brief 主函数
+ * @param argc 命令行参数个数
+ * @param argv 命令行参数数组
+ * @return 应用程序退出代码
+ */
 int main(int argc, char *argv[])
 {
     qDebug() << "Starting application...";
     
+    // 创建应用程序实例
     QApplication a(argc, argv);
     
     qDebug() << "Creating main window...";
@@ -75,6 +88,7 @@ int main(int argc, char *argv[])
     mainWindow.show();
     
     qDebug() << "Entering event loop...";
+    // 进入事件循环
     int result = a.exec();
     
     qDebug() << "Exiting event loop with result:" << result;
