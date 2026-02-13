@@ -2,6 +2,12 @@
 // TextEditorWidget.cpp
 // 文本编辑器部件类的实现文件
 // 主编辑器部件，集成了控制器和视图
+// 
+// 该类是整个数学公式编辑器的核心UI组件，负责：
+// 1. 整合文档视图、输入控制器、文档控制器和选择控制器
+// 2. 处理用户输入事件（键盘、鼠标、输入法）
+// 3. 提供标准的编辑操作接口（剪切、复制、粘贴等）
+// 4. 协调各组件间的消息传递和状态同步
 // ============================================================================
 
 #include "view/TextEditorWidget.h"
@@ -12,65 +18,103 @@
 /**
  * @brief 构造函数
  * @param parent 父窗口部件
+ * 
+ * 初始化文本编辑器的所有核心组件：
+ * - 创建垂直布局管理器用于组织界面元素
+ * - 初始化文档视图组件，负责文档内容的渲染显示
+ * - 初始化输入控制器，处理各种输入事件
+ * - 初始化文档控制器，管理文档的核心操作
+ * - 初始化选择控制器，管理文本选择状态
+ * 
+ * 设置组件间的依赖关系和信号连接，建立完整的数据流。
  */
 TextEditorWidget::TextEditorWidget(QWidget *parent)
     : QWidget(parent),
-      m_layout(new QVBoxLayout(this)),
-      m_documentView(new DocumentView(this)),
-      m_inputController(new InputController(this)),
-      m_documentController(new DocumentController(this)),
-      m_selectionController(new SelectionController(this))
+      m_layout(new QVBoxLayout(this)),           // 垂直布局管理器
+      m_documentView(new DocumentView(this)),    // 文档视图组件
+      m_inputController(new InputController(this)),     // 输入事件控制器
+      m_documentController(new DocumentController(this)), // 文档操作控制器
+      m_selectionController(new SelectionController(this)) // 选择状态控制器
 {
+    // 将文档视图添加到布局中并设置无边距
     m_layout->addWidget(m_documentView);
     m_layout->setContentsMargins(0, 0, 0, 0);
     setLayout(m_layout);
-    setFocusPolicy(Qt::StrongFocus);
-    setAttribute(Qt::WA_InputMethodEnabled, true);
-    setInputMethodHints(Qt::ImhMultiLine);
     
-    // 设置控制器之间的关联
-    m_inputController->setDocumentController(m_documentController);
-    m_inputController->setSelectionController(m_selectionController);
-    m_inputController->setDocumentView(m_documentView);
+    // 设置焦点策略和输入法支持
+    setFocusPolicy(Qt::StrongFocus);                    // 强焦点策略，可接收键盘输入
+    setAttribute(Qt::WA_InputMethodEnabled, true);      // 启用输入法支持
+    setInputMethodHints(Qt::ImhMultiLine);              // 设置多行文本输入提示
     
-    // 连接选择变化信号，以便更新视图
+    // 建立控制器间的依赖关系
+    m_inputController->setDocumentController(m_documentController);    // 输入控制器需要文档控制器
+    m_inputController->setSelectionController(m_selectionController);  // 输入控制器需要选择控制器
+    m_inputController->setDocumentView(m_documentView);                // 输入控制器需要文档视图
+    
+    // 建立信号连接以实现组件间的状态同步
+    // 当选择状态改变时，更新视图显示
     connect(m_selectionController, &SelectionController::selectionChanged, 
             this, &TextEditorWidget::onSelectionChanged);
     
-    // 连接文档变化信号，以便更新视图
+    // 当文档内容改变时，更新视图布局
     connect(m_documentController, &DocumentController::documentChanged,
             this, &TextEditorWidget::onDocumentChanged);
     
-    // 设置文档控制器的文档（暂时为空，将在setDocument时设置）
+    // 注意：此时文档控制器还没有设置具体文档，
+    // 需要通过setDocument()方法在外部设置实际的文档对象
 }
 
 /**
- * @brief 文档变化处理
- * 文档发生变化时更新视图布局
+ * @brief 文档变化处理槽函数
+ * 
+ * 当文档内容发生任何修改时被调用，负责同步更新UI显示。
+ * 这个槽函数通过信号-槽机制与文档控制器连接。
+ * 
+ * 主要功能：
+ * - 触发文档视图重新计算布局
+ * - 更新所有相关组件的显示状态
+ * - 确保UI与数据模型保持一致
  */
 void TextEditorWidget::onDocumentChanged()
 {
-    // 文档发生变化时更新视图布局
+    // 调用文档视图的布局更新方法
+    // 这会重新计算所有段落和运行的位置、大小等布局信息
     m_documentView->updateLayout();
 }
 
 /**
- * @brief 选择变化处理
- * @param selection 新的选择范围
- * 将选择更新到文档视图并确保光标可见
+ * @brief 选择状态变化处理槽函数
+ * @param selection 新的选择范围对象
+ * 
+ * 当用户改变文本选择状态时被调用，负责更新相关的UI组件。
+ * 这个槽函数通过信号-槽机制与选择控制器连接。
+ * 
+ * 主要功能：
+ * - 将新的选择状态传递给文档视图进行可视化显示
+ * - 确保当前光标位置在可视区域内
+ * - 维护选择状态与视图显示的一致性
  */
 void TextEditorWidget::onSelectionChanged(const Selection &selection)
 {
-    // 将选择更新到文档视图
+    // 将选择状态设置到文档视图中
+    // 这会让视图知道哪些文本被选中，并相应地高亮显示
     m_documentView->setSelection(selection);
     
-    // 确保光标可见
+    // 确保光标当前位置可见
+    // 如果光标移出了可视区域，会自动滚动到合适位置
     m_documentView->ensureCursorVisible();
 }
 
 /**
- * @brief 获取文档视图
- * @return 文档视图指针
+ * @brief 获取文档视图组件
+ * @return DocumentView* 文档视图组件的指针
+ * 
+ * 提供对外访问文档视图组件的接口，允许外部代码：
+ * - 直接操作视图属性
+ * - 获取视图状态信息
+ * - 进行视图相关的特殊操作
+ * 
+ * 注意：返回的是原始指针，调用者需要注意对象生命周期管理。
  */
 DocumentView *TextEditorWidget::documentView() const
 {
@@ -78,8 +122,17 @@ DocumentView *TextEditorWidget::documentView() const
 }
 
 /**
- * @brief 获取文档
- * @return 文档指针
+ * @brief 获取当前编辑的文档对象
+ * @return Document* 当前文档对象的指针
+ * 
+ * 通过文档视图间接获取正在编辑的文档实例。
+ * 
+ * 使用场景：
+ * - 获取文档内容进行保存
+ * - 查询文档状态信息
+ * - 执行文档级别的操作
+ * 
+ * 注意：如果尚未设置文档或文档已被销毁，可能返回nullptr。
  */
 Document *TextEditorWidget::document() const
 {
@@ -143,13 +196,28 @@ void TextEditorWidget::undo()
 }
 
 /**
- * @brief 重做功能
- * 实现重做操作
+ * @brief 重做操作
+ * 
+ * 执行重做功能，重新执行之前被撤销的操作。
+ * 
+ * 标准重做操作流程：
+ * 1. 检查重做栈是否为空
+ * 2. 从重做栈中取出操作
+ * 3. 重新执行该操作
+ * 4. 更新所有相关组件的状态
+ * 5. 刷新UI显示
+ * 
+ * 重做功能通常与撤销功能配合使用。
+ * 
+ * TODO: 需要实现具体的重做逻辑
  */
 void TextEditorWidget::redo()
 {
-    // 实现重做功能
-    // 这里可以添加具体的重做逻辑
+    // TODO: 实现重做功能
+    // 可能的实现步骤：
+    // 1. 调用文档控制器的重做方法
+    // 2. 更新视图显示
+    // 3. 更新光标和选择状态
 }
 
 /**
@@ -198,41 +266,94 @@ void TextEditorWidget::keyPressEvent(QKeyEvent *event)
 
 /**
  * @brief 鼠标按下事件处理
- * @param event 鼠标事件
+ * @param event 鼠标事件对象，包含点击位置、按键等信息
+ * 
+ * 处理鼠标点击相关的交互操作：
+ * 
+ * 主要功能：
+ * 1. 调用父类的基础鼠标事件处理
+ * 2. 确保编辑器获得键盘焦点
+ * 3. 为后续的输入法操作做好准备
+ * 
+ * 焦点管理的重要性：
+ * - 只有获得焦点的控件才能接收键盘输入
+ * - 输入法需要焦点控件才能正确工作
+ * - 点击编辑区域应该自动获得焦点
+ * 
+ * 注意：具体的文本选择逻辑通常由文档视图组件处理。
  */
 void TextEditorWidget::mousePressEvent(QMouseEvent *event)
 {
+    // 先调用父类的鼠标事件处理
+    // 这样可以确保基础的鼠标交互正常工作
     QWidget::mousePressEvent(event);
     
-    // 确保获得焦点，以便输入法能够正常工作
+    // 确保当前编辑器获得焦点
+    // 这对于启用键盘输入和输入法支持至关重要
     setFocus();
 }
 
 /**
  * @brief 输入法事件处理
- * @param event 输入法事件
+ * @param event 输入法事件对象，包含候选词、预编辑文本等信息
+ * 
+ * 处理来自输入法框架的各种事件：
+ * 
+ * 支持的功能：
+ * 1. 预编辑文本显示（输入法候选过程中的临时文本）
+ * 2. 候选词列表管理
+ * 3. 最终文本提交
+ * 4. 输入法状态切换
+ * 
+ * 处理流程：
+ * 1. 将事件委托给专业的输入控制器处理
+ * 2. 输入控制器负责具体的文本插入和光标管理
+ * 3. 调用父类方法确保兼容性
+ * 
+ * 这种设计使得输入法支持模块化，便于维护和扩展。
  */
 void TextEditorWidget::inputMethodEvent(QInputMethodEvent *event)
 {
-    // 将输入法事件传递给输入控制器处理
+    // 委托给输入控制器进行专业处理
+    // 输入控制器了解文档结构和光标位置，能正确处理输入法文本
     if (m_inputController) {
         m_inputController->handleInputMethodEvent(event);
     }
     
-    // 调用父类的处理
+    // 调用父类的输入法事件处理
+    // 确保Qt框架的基本输入法功能正常工作
     QWidget::inputMethodEvent(event);
 }
 
 /**
- * @brief 输入法查询
- * @param query 查询类型
- * @return 查询结果
+ * @brief 输入法查询处理
+ * @param query 查询类型，指定需要的信息类型
+ * @return QVariant 查询结果，根据查询类型返回相应的数据
+ * 
+ * 响应输入法框架的查询请求，提供必要的编辑器状态信息：
+ * 
+ * 常见查询类型包括：
+ * - Qt::ImCursorRectangle: 光标位置和大小
+ * - Qt::ImFont: 当前字体信息
+ * - Qt::ImAnchorPosition: 选择锚点位置
+ * - Qt::ImCursorPosition: 当前光标位置
+ * - Qt::ImSurroundingText: 周围文本内容
+ * 
+ * 实现方式：
+ * 1. 将查询请求委托给文档视图处理
+ * 2. 文档视图了解具体的文本布局和光标信息
+ * 3. 如果没有文档视图，则使用父类的默认实现
+ * 
+ * 这种委托模式保证了输入法能够获得准确的位置和状态信息。
  */
 QVariant TextEditorWidget::inputMethodQuery(Qt::InputMethodQuery query) const
 {
-    // 委托给文档视图处理输入法查询
+    // 委托给文档视图处理具体的输入法查询
+    // 文档视图掌握着光标位置、文本布局等关键信息
     if (m_documentView) {
         return m_documentView->inputMethodQueryPublic(query);
     }
+    
+    // 如果没有文档视图，使用QWidget的默认实现
     return QWidget::inputMethodQuery(query);
 }

@@ -17,6 +17,7 @@
 #include <QPoint>
 #include <QVariant>
 #include <QGraphicsTextItem>
+#include <QPointF>
 
 /**
  * @class DocumentView
@@ -94,7 +95,15 @@ public:
      * @brief 隐藏组合文本
      */
     void hideComposingText();
-    
+
+signals:
+    /**
+     * @brief 鼠标位置变化信号
+     * @param scenePos 场景坐标
+     * @param viewPos 视图坐标
+     */
+    void mousePositionChanged(const QPointF& scenePos, const QPoint& viewPos);
+
 protected:
     /**
      * @brief 鼠标按下事件处理

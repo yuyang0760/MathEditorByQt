@@ -17,23 +17,22 @@
  */
 DocumentView::DocumentView(QWidget *parent)
     : QGraphicsView(parent),
-      m_scene(new QGraphicsScene(this)),
-      m_document(nullptr),
-      m_cursor(new Cursor(this)),
-      m_selecting(false),
-      m_composingTextItem(nullptr)
+      m_scene(new QGraphicsScene(this)),          // 图形场景，用于管理文档的可视化元素
+      m_document(nullptr),                        // 文档指针，初始化为空，后续通过setDocument设置
+      m_cursor(new Cursor(this)),                 // 光标对象，用于显示和控制文本插入点
+      m_selecting(false),                         // 选择状态标志，用于跟踪鼠标拖拽选择操作
+      m_composingTextItem(nullptr) // 组合文本项指针，用于显示输入法的临时组合字符
 {
-    setScene(m_scene);
-    m_scene->addItem(m_cursor);
-    setDragMode(NoDrag);
-    setRenderHint(QPainter::Antialiasing);
-    
-    // 启用输入法支持
-    setAttribute(Qt::WA_InputMethodEnabled, true);
-    setFocusPolicy(Qt::StrongFocus);
-    
+    setScene(m_scene); // 设置当前视图的场景为m_scene
+    m_scene->addItem(m_cursor); // 将光标对象添加到场景中
+    setDragMode(NoDrag); // 禁用拖拽模式
+    setRenderHint(QPainter::Antialiasing); // 启用抗锯齿渲染
+    setAlignment(Qt::AlignLeft | Qt::AlignTop); // 设置文本对齐方式为左对齐和顶部对齐
     // 设置一个默认场景矩形，防止显示问题
     m_scene->setSceneRect(0, 0, 800, 600);
+
+    // 设置蓝色边框，方便区分DocumentView的大小
+    setStyleSheet("border: 2px solid blue; background-color: lightgray;");
 }
 
 /**
@@ -95,12 +94,19 @@ Cursor *DocumentView::cursor() const
 /**
  * @brief 更新布局
  * 重新布局文档内容并更新光标位置
+ * 1. 首先检查场景和文档是否有效，无效则直接返回
+ * 2. 清除场景中除光标外的所有图形项
+ * 3. 遍历文档中的每个段落，创建新的文本图形项并添加到场景中
+ * 4. 更新光标位置到当前文档位置
+ * 5. 确保场景有合理的矩形范围，防止显示问题
+ * 6. 更新输入法系统，通知光标位置变化
+ * TODO: 局部更新，只更新受影响的段落
  */
-void DocumentView::updateLayout()
-{
+void DocumentView::updateLayout() {
+    // 检查场景和文档是否有效
     if (!m_scene || !m_document)
         return;
-    
+
     // 清除场景中的所有项目，除了光标（我们稍后会单独处理它）
     QList<QGraphicsItem *> items = m_scene->items();
     for (QGraphicsItem *item : items) {
@@ -109,27 +115,26 @@ void DocumentView::updateLayout()
             delete item;
         }
     }
-    
+
     // 简单的文档布局
-    qreal y = 10;
-    qreal lineHeight = 20;
-    
-    for (int i = 0; i < m_document->paragraphCount(); i++)
-    {
+    qreal y = 10; // 起始Y坐标
+    qreal lineHeight = 20; // 行高
+
+    // 遍历文档中的所有段落
+    for (int i = 0; i < m_document->paragraphCount(); i++) {
         Paragraph paragraph = m_document->paragraph(i);
         QString text = paragraph.text();
-        
-        // 创建文本项
+
+        // 创建文本项并设置位置
         QGraphicsTextItem *textItem = new QGraphicsTextItem(text);
-        textItem->setPos(10, y);
+        textItem->setPos(1, y);
         m_scene->addItem(textItem);
-        
-        y += lineHeight;
+
+        y += lineHeight; // 移动到下一行
     }
-    
+
     // 更新光标位置
-    if (m_cursor)
-    {
+    if (m_cursor) {
         QPoint point = pointFromPosition(m_cursor->position());
         m_cursor->setPos(point.x(), point.y());
         // 通知输入法系统光标位置已更新
@@ -178,10 +183,19 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
         Selection selection(m_selectionStart, m_selectionStart);
         setSelection(selection);
         
-        // 更新光标位置
+        // 更新光标位置并确保可见
         m_cursor->setPosition(m_selectionStart);
+        
+        // 更新光标在场景中的实际位置
+        QPoint cursorPoint = pointFromPosition(m_selectionStart);
+        m_cursor->setPos(cursorPoint.x(), cursorPoint.y());
+        
         m_cursor->show();
         m_cursor->stopBlinking();
+        
+        // 确保光标在视图内可见
+        ensureCursorVisible();
+        
         // 通知输入法系统光标位置已更新
         updateInputMethod();
     }
@@ -194,6 +208,13 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
 void DocumentView::mouseMoveEvent(QMouseEvent *event)
 {
     QGraphicsView::mouseMoveEvent(event);
+    
+    // 获取鼠标位置
+    QPoint viewPos = event->pos();
+    QPointF scenePos = mapToScene(viewPos);
+    
+    // 发射鼠标位置变化信号
+    emit mousePositionChanged(scenePos, viewPos);
     
     if (m_selecting && (event->buttons() & Qt::LeftButton))
     {
@@ -217,7 +238,21 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton && m_selecting)
     {
         m_selecting = false;
+        
+        // 确保光标在正确位置
+        QPoint point = event->pos();
+        Selection::Position cursorPos = positionFromPoint(point);
+        m_cursor->setPosition(cursorPos);
+        
+        // 更新光标在场景中的实际位置
+        QPoint cursorPoint = pointFromPosition(cursorPos);
+        m_cursor->setPos(cursorPoint.x(), cursorPoint.y());
+        
+        // 开始闪烁
         m_cursor->startBlinking();
+        
+        // 确保光标在视图内可见
+        ensureCursorVisible();
         
         // 确保获得焦点，以便输入法能够正常工作
         setFocus();

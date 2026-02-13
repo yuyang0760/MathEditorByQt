@@ -84,3 +84,9 @@ CMakeLists.txt.user*
 /build*/
 out
 build
+# visual studio generated files
+.vscode/
+.vs/
+#CMake generated files
+CMakeLists.txt.user
+/.vscode/

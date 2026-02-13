@@ -13,6 +13,8 @@
 #include <QMenuBar>
 #include <QMenu>
 #include <QAction>
+#include <QStatusBar>
+#include <QLabel>
 #include <QDebug>
 
 /**
@@ -33,6 +35,18 @@ int main(int argc, char *argv[])
     QMainWindow mainWindow;
     mainWindow.setWindowTitle("MathEditor");
     mainWindow.resize(800, 600);
+    
+    qDebug() << "Creating status bar...";
+    // 创建状态栏
+    QStatusBar *statusBar = mainWindow.statusBar();
+    
+    // 创建鼠标坐标显示标签
+    QLabel *mousePositionLabel = new QLabel("鼠标坐标: (0, 0)");
+    statusBar->addPermanentWidget(mousePositionLabel);
+    
+    // 创建文档状态显示标签
+    QLabel *documentStatusLabel = new QLabel("就绪");
+    statusBar->addWidget(documentStatusLabel);
     
     qDebug() << "Creating menu bar...";
     // 创建菜单栏
@@ -82,6 +96,15 @@ int main(int argc, char *argv[])
     
     // 连接信号槽
     QObject::connect(exitAction, &QAction::triggered, &a, &QApplication::quit);
+    
+    // 连接鼠标位置更新信号
+    QObject::connect(editorWidget->documentView(), &DocumentView::mousePositionChanged, 
+                     [mousePositionLabel](const QPointF& scenePos, const QPoint& viewPos) {
+                         QString text = QString("鼠标坐标: 场景(%1, %2) 视图(%3, %4)")
+                                       .arg(scenePos.x()).arg(scenePos.y())
+                                       .arg(viewPos.x()).arg(viewPos.y());
+                         mousePositionLabel->setText(text);
+                     });
     
     qDebug() << "Showing main window...";
     // 显示主窗口
