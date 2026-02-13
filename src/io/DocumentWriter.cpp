@@ -57,7 +57,7 @@ bool DocumentWriter::write(const Document *document, QTextStream &stream)
         for (int i = 0; i < document->paragraphCount(); i++)
         {
             Paragraph paragraph = document->paragraph(i);
-            stream << paragraph.text() << "\n";
+            stream << paragraph.plainText() << "\n";
         }
         
         m_hasError = false;

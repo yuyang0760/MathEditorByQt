@@ -38,21 +38,27 @@ set(PROJECT_SOURCES
     
     # 核心模块
     src/core/Format.cpp
-    src/core/Run.cpp
+    src/core/TextRun.cpp
+    src/core/MathObject.cpp
     src/core/Paragraph.cpp
     src/core/Document.cpp
     src/core/Selection.cpp
     include/core/Format.h
-    include/core/Run.h
+    include/core/TextRun.h
+    include/core/MathObject.h
     include/core/Paragraph.h
     include/core/Document.h
     include/core/Selection.h
     
     # 视图模块
     src/view/Cursor.cpp
+    src/view/TextRunItem.cpp
+    src/view/MathObjectItem.cpp
     src/view/DocumentView.cpp
     src/view/TextEditorWidget.cpp
     include/view/Cursor.h
+    include/view/TextRunItem.h
+    include/view/MathObjectItem.h
     include/view/DocumentView.h
     include/view/TextEditorWidget.h
     

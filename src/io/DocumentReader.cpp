@@ -5,6 +5,7 @@
 // ============================================================================
 
 #include "io/DocumentReader.h"
+#include "core/Format.h"
 
 /**
  * @brief 构造函数
@@ -51,7 +52,8 @@ Document *DocumentReader::read(QTextStream &stream)
         {
             QString line = stream.readLine();
             Paragraph paragraph;
-            paragraph.setText(line);
+            Format defaultFormat(QFont("Microsoft YaHei", 12));
+            paragraph.appendText(line, defaultFormat);
             document->addParagraph(paragraph);
         }
         

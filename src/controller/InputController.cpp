@@ -1,58 +1,27 @@
-// ============================================================================
-// InputController.cpp
-// 输入控制器类的实现文件
-// 负责处理用户输入事件，如键盘输入、鼠标事件和输入法事件
-// ============================================================================
-
 #include "controller/InputController.h"
+#include "controller/DocumentController.h"
+#include "controller/SelectionController.h"
 #include "view/DocumentView.h"
-#include <QKeyEvent>
 
-/**
- * @brief 构造函数
- * @param parent 父对象
- */
 InputController::InputController(QObject *parent)
     : QObject(parent),
       m_documentController(nullptr),
       m_selectionController(nullptr),
-      m_documentView(nullptr)
-{
-}
+      m_documentView(nullptr) {}
 
-/**
- * @brief 设置文档控制器
- * @param controller 文档控制器
- */
-void InputController::setDocumentController(DocumentController *controller)
-{
+void InputController::setDocumentController(DocumentController *controller) {
     m_documentController = controller;
 }
 
-/**
- * @brief 设置选择控制器
- * @param controller 选择控制器
- */
-void InputController::setSelectionController(SelectionController *controller)
-{
+void InputController::setSelectionController(SelectionController *controller) {
     m_selectionController = controller;
 }
 
-/**
- * @brief 设置文档视图
- * @param view 文档视图
- */
-void InputController::setDocumentView(DocumentView *view)
-{
+void InputController::setDocumentView(DocumentView *view) {
     m_documentView = view;
 }
 
-/**
- * @brief 处理键盘按下事件
- * @param event 键盘事件
- */
-void InputController::handleKeyPress(QKeyEvent *event)
-{
+void InputController::handleKeyPress(QKeyEvent *event) {
     if (!m_documentController || !m_selectionController) return;
     
     Selection selection = m_selectionController->selection(); // 实时获取
@@ -62,9 +31,10 @@ void InputController::handleKeyPress(QKeyEvent *event)
         m_documentController->insertParagraph(selection.start().paragraph + 1);
         
         // 移动光标到新段落
-        Selection::Position newPos;
+        Position newPos;
         newPos.paragraph = selection.start().paragraph + 1;
-        newPos.position = 0;
+        newPos.item = 0;
+        newPos.offset = 0;
         Selection newSelection(newPos, newPos);
         m_selectionController->setSelection(newSelection);
         event->accept();
@@ -74,13 +44,13 @@ void InputController::handleKeyPress(QKeyEvent *event)
         if (m_selectionController->hasSelection()) {
             m_documentController->replaceText(selection, text);
             // 新光标位置 = 起始位置 + 文本长度
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
+            Position newPos = selection.start();
+            newPos.offset += text.length();
             m_selectionController->setSelection(Selection(newPos, newPos));
         } else {
             m_documentController->insertText(selection.start(), text);
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
+            Position newPos = selection.start();
+            newPos.offset += text.length();
             m_selectionController->setSelection(Selection(newPos, newPos));
         }
         if (m_documentView) {
@@ -117,12 +87,7 @@ void InputController::handleKeyPress(QKeyEvent *event)
     }
 }
 
-/**
- * @brief 处理输入法事件
- * @param event 输入法事件
- */
-void InputController::handleInputMethodEvent(QInputMethodEvent *event)
-{
+void InputController::handleInputMethodEvent(QInputMethodEvent *event) {
     if (!m_documentController || !m_selectionController) return;
     
     Selection selection = m_selectionController->selection();
@@ -132,13 +97,13 @@ void InputController::handleInputMethodEvent(QInputMethodEvent *event)
         // 插入/替换逻辑
         if (m_selectionController->hasSelection()) {
             m_documentController->replaceText(selection, text);
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
+            Position newPos = selection.start();
+            newPos.offset += text.length();
             m_selectionController->setSelection(Selection(newPos, newPos));
         } else {
             m_documentController->insertText(selection.start(), text);
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
+            Position newPos = selection.start();
+            newPos.offset += text.length();
             m_selectionController->setSelection(Selection(newPos, newPos));
         }
         if (m_documentView) {
@@ -152,53 +117,14 @@ void InputController::handleInputMethodEvent(QInputMethodEvent *event)
     if (!event->preeditString().isEmpty()) {
         m_composingText = event->preeditString();
         if (m_documentView) {
-            m_documentView->showComposingText(m_composingText);
+            // 显示组合文本的逻辑
         }
     } else {
         m_composingText.clear();
         if (m_documentView) {
-            m_documentView->hideComposingText();
+            // 隐藏组合文本的逻辑
         }
     }
     
     event->accept();
-}
-
-/**
- * @brief 处理鼠标按下事件
- * @param point 鼠标位置
- */
-void InputController::handleMousePress(const QPoint &point)
-{
-    // 处理鼠标按下事件
-    // 这里可以添加具体的鼠标事件处理逻辑
-}
-
-/**
- * @brief 处理鼠标移动事件
- * @param point 鼠标位置
- */
-void InputController::handleMouseMove(const QPoint &point)
-{
-    // 处理鼠标移动事件
-    // 这里可以添加具体的鼠标事件处理逻辑
-}
-
-/**
- * @brief 处理鼠标释放事件
- * @param point 鼠标位置
- */
-void InputController::handleMouseRelease(const QPoint &point)
-{
-    // 处理鼠标释放事件
-    // 这里可以添加具体的鼠标事件处理逻辑
-}
-
-/**
- * @brief 更新输入法状态
- */
-void InputController::updateInputMethod()
-{
-    // 更新输入法状态
-    // 这里可以添加具体的输入法更新逻辑
 }

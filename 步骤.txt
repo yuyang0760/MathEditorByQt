@@ -1,588 +1,259 @@
-我将为您提供一个全新的、可运行的代码框架，它支持段落、文本格式，并预留了数学公式扩展的接口。这个架构类似于 Word，可以处理普通文本，并且可以方便地嵌入公式对象。代码保留了您原有的光标闪烁、状态栏更新和事件处理分发机制，但模型和视图已彻底重构以支持富文本和未来公式。
+根据您提供的代码，当前编辑器的主要问题是光标定位不精确、文本插入位置错误以及输入法支持不完整。以下将逐步指导您修改关键文件，以实现精确的光标定位、正确的文本插入和中文输入支持。
 
-目录结构
-text
-MathEditor/
-├── core/
-│   ├── Document.h
-│   ├── Document.cpp
-│   ├── Paragraph.h
-│   ├── Paragraph.cpp
-│   ├── TextRun.h
-│   ├── TextRun.cpp
-│   ├── MathObject.h
-│   ├── MathObject.cpp
-│   ├── Format.h
-│   ├── Format.cpp
-│   ├── Selection.h
-│   └── Selection.cpp
-├── controller/
-│   ├── DocumentController.h
-│   ├── DocumentController.cpp
-│   ├── InputController.h
-│   ├── InputController.cpp
-│   ├── SelectionController.h
-│   └── SelectionController.cpp
-├── view/
-│   ├── DocumentView.h
-│   ├── DocumentView.cpp
-│   ├── Cursor.h
-│   ├── Cursor.cpp
-│   ├── TextRunItem.h
-│   ├── TextRunItem.cpp
-│   ├── MathObjectItem.h
-│   ├── MathObjectItem.cpp
-│   └── TextEditorWidget.h
-│   └── TextEditorWidget.cpp
-├── io/
-│   ├── DocumentReader.h
-│   ├── DocumentReader.cpp
-│   ├── DocumentWriter.h
-│   └── DocumentWriter.cpp
-└── main.cpp
-核心模型类
-core/Format.h
+一、精确光标定位（鼠标点击定位到字符之间）
+需要修改 DocumentView::positionFromPoint 和 pointFromPosition，利用字体度量计算每个字符的精确位置。
+
+1. 修改 DocumentView::positionFromPoint
+位置：DocumentView.cpp 中的 positionFromPoint 函数。
+
+目标：根据鼠标点击的坐标，返回对应的 Position（段落、项、偏移）。
+
+修改后的代码：
+
 cpp
-#ifndef FORMAT_H
-#define FORMAT_H
+Position DocumentView::positionFromPoint(const QPointF &point) const {
+    if (!m_document) return {0, 0, 0};
 
-#include <QFont>
-#include <QColor>
+    QFont defaultFont("Microsoft YaHei", 12);
+    QFontMetricsF metrics(defaultFont);
+    qreal lineHeight = metrics.height();
+    qreal leftMargin = 10.0;
 
-class Format {
-public:
-    Format();
-    Format(const QFont &font, const QColor &color = Qt::black);
+    // 1. 确定段落索引（Y坐标）
+    int paraIndex = qBound(0, static_cast<int>((point.y() - leftMargin) / lineHeight), m_document->paragraphCount() - 1);
+    Paragraph para = m_document->paragraph(paraIndex);
 
-    QFont font() const;
-    void setFont(const QFont &font);
-    QColor color() const;
-    void setColor(const QColor &color);
+    // 2. 遍历段落内的所有项，累加宽度
+    qreal x = leftMargin;
+    for (int i = 0; i < para.itemCount(); ++i) {
+        const auto &item = para.itemAt(i);
+        qreal itemWidth = 0;
 
-    bool bold() const;
-    void setBold(bool bold);
-    bool italic() const;
-    void setItalic(bool italic);
-    bool underline() const;
-    void setUnderline(bool underline);
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun run = item.data.value<TextRun>();
+            QFontMetricsF fm(run.format().font());
+            itemWidth = fm.horizontalAdvance(run.text());
+        } else if (item.type == Paragraph::MathObjectItem) {
+            itemWidth = MathObjectItem::WIDTH; // 固定宽度
+        }
 
-    bool operator==(const Format &other) const;
-    bool operator!=(const Format &other) const;
+        // 3. 检查点击点是否在当前项内
+        if (point.x() < x + itemWidth) {
+            // 点击在这一项内
+            if (item.type == Paragraph::TextRunItem) {
+                TextRun run = item.data.value<TextRun>();
+                QFontMetricsF fm(run.format().font());
+                QString text = run.text();
+                qreal charX = x;
+                // 逐字符累积宽度，找到最近的字符边界
+                for (int offset = 0; offset <= text.length(); ++offset) {
+                    qreal nextX = (offset < text.length()) ? charX + fm.horizontalAdvance(text[offset]) : x + itemWidth;
+                    if (point.x() <= nextX) {
+                        // 如果点击点距离当前字符左边更近，则放在当前字符之前；否则之后
+                        qreal leftDist = point.x() - charX;
+                        qreal rightDist = nextX - point.x();
+                        Position pos;
+                        pos.paragraph = paraIndex;
+                        pos.item = i;
+                        pos.offset = offset + (leftDist > rightDist ? 1 : 0); // 选择最近的边界
+                        return pos;
+                    }
+                    charX = nextX;
+                }
+            } else { // MathObjectItem
+                // 点击公式项：根据点击位置在左半部分或右半部分决定偏移0（之前）或1（之后）
+                qreal half = itemWidth / 2;
+                Position pos;
+                pos.paragraph = paraIndex;
+                pos.item = i;
+                pos.offset = (point.x() < x + half) ? 0 : 1;
+                return pos;
+            }
+        }
 
-private:
-    QFont m_font;
-    QColor m_color;
-};
+        x += itemWidth;
+    }
 
-#endif // FORMAT_H
-core/Format.cpp
-cpp
-#include "Format.h"
-
-Format::Format() {}
-Format::Format(const QFont &font, const QColor &color) : m_font(font), m_color(color) {}
-
-QFont Format::font() const { return m_font; }
-void Format::setFont(const QFont &font) { m_font = font; }
-QColor Format::color() const { return m_color; }
-void Format::setColor(const QColor &color) { m_color = color; }
-
-bool Format::bold() const { return m_font.bold(); }
-void Format::setBold(bool bold) { m_font.setBold(bold); }
-bool Format::italic() const { return m_font.italic(); }
-void Format::setItalic(bool italic) { m_font.setItalic(italic); }
-bool Format::underline() const { return m_font.underline(); }
-void Format::setUnderline(bool underline) { m_font.setUnderline(underline); }
-
-bool Format::operator==(const Format &other) const {
-    return m_font == other.m_font && m_color == other.m_color;
-}
-bool Format::operator!=(const Format &other) const { return !(*this == other); }
-core/TextRun.h
-cpp
-#ifndef TEXTRUN_H
-#define TEXTRUN_H
-
-#include "Format.h"
-#include <QString>
-
-class TextRun {
-public:
-    TextRun();
-    TextRun(const QString &text, const Format &format = Format());
-
-    QString text() const;
-    void setText(const QString &text);
-    Format format() const;
-    void setFormat(const Format &format);
-
-    void insert(int position, const QString &text);
-    void remove(int position, int length);
-    int length() const;
-
-private:
-    QString m_text;
-    Format m_format;
-};
-
-#endif // TEXTRUN_H
-core/TextRun.cpp
-cpp
-#include "TextRun.h"
-
-TextRun::TextRun() {}
-TextRun::TextRun(const QString &text, const Format &format) : m_text(text), m_format(format) {}
-
-QString TextRun::text() const { return m_text; }
-void TextRun::setText(const QString &text) { m_text = text; }
-Format TextRun::format() const { return m_format; }
-void TextRun::setFormat(const Format &format) { m_format = format; }
-
-void TextRun::insert(int position, const QString &text) { m_text.insert(position, text); }
-void TextRun::remove(int position, int length) { m_text.remove(position, length); }
-int TextRun::length() const { return m_text.length(); }
-core/MathObject.h
-cpp
-#ifndef MATHOBJECT_H
-#define MATHOBJECT_H
-
-#include <QString>
-// 数学公式对象（占位，未来可扩展为树结构）
-class MathObject {
-public:
-    enum Type { Placeholder, Fraction, Radical, Script, Matrix };
-
-    MathObject(Type type = Placeholder);
-    Type type() const;
-
-    // 未来可添加子节点、属性等
-    void setLatex(const QString &latex);
-    QString latex() const;
-
-private:
-    Type m_type;
-    QString m_latex;
-};
-
-#endif // MATHOBJECT_H
-core/MathObject.cpp
-cpp
-#include "MathObject.h"
-
-MathObject::MathObject(Type type) : m_type(type) {}
-MathObject::Type MathObject::type() const { return m_type; }
-void MathObject::setLatex(const QString &latex) { m_latex = latex; }
-QString MathObject::latex() const { return m_latex; }
-core/Paragraph.h
-cpp
-#ifndef PARAGRAPH_H
-#define PARAGRAPH_H
-
-#include <QVariant> // 用于存储 TextRun 或 MathObject
-#include <QList>
-
-class Paragraph {
-public:
-    enum ItemType { TextRunItem, MathObjectItem };
-
-    struct Item {
-        ItemType type;
-        QVariant data; // TextRun 或 MathObject
-    };
-
-    Paragraph();
-
-    void appendText(const QString &text, const Format &format = Format());
-    void appendMathObject(const MathObject &obj);
-
-    int itemCount() const;
-    const Item &itemAt(int index) const;
-    Item &itemAt(int index);
-
-    QString plainText() const; // 用于调试
-
-private:
-    QList<Item> m_items;
-};
-
-#endif // PARAGRAPH_H
-core/Paragraph.cpp
-cpp
-#include "Paragraph.h"
-#include "TextRun.h"
-#include "MathObject.h"
-
-Paragraph::Paragraph() {}
-
-void Paragraph::appendText(const QString &text, const Format &format) {
-    Item item;
-    item.type = TextRunItem;
-    item.data = QVariant::fromValue(TextRun(text, format));
-    m_items.append(item);
-}
-
-void Paragraph::appendMathObject(const MathObject &obj) {
-    Item item;
-    item.type = MathObjectItem;
-    item.data = QVariant::fromValue(obj);
-    m_items.append(item);
-}
-
-int Paragraph::itemCount() const { return m_items.size(); }
-const Paragraph::Item &Paragraph::itemAt(int index) const { return m_items[index]; }
-Paragraph::Item &Paragraph::itemAt(int index) { return m_items[index]; }
-
-QString Paragraph::plainText() const {
-    QString result;
-    for (const auto &item : m_items) {
-        if (item.type == TextRunItem) {
-            result += item.data.value<TextRun>().text();
+    // 4. 点击在段落末尾之后：返回最后一个项的末尾
+    Position pos;
+    pos.paragraph = paraIndex;
+    pos.item = para.itemCount() - 1;
+    if (pos.item >= 0) {
+        const auto &lastItem = para.itemAt(pos.item);
+        if (lastItem.type == Paragraph::TextRunItem) {
+            TextRun run = lastItem.data.value<TextRun>();
+            pos.offset = run.length();
         } else {
-            result += "[Math]";
+            pos.offset = 1; // 公式项偏移为1表示之后
+        }
+    } else {
+        // 段落为空
+        pos.item = 0;
+        pos.offset = 0;
+    }
+    return pos;
+}
+2. 修改 DocumentView::pointFromPosition
+位置：DocumentView.cpp 中的 pointFromPosition 函数。
+
+目标：根据 Position 返回对应的场景坐标（用于放置光标）。
+
+修改后的代码：
+
+cpp
+QPointF DocumentView::pointFromPosition(const Position &pos) const {
+    if (!m_document || pos.paragraph >= m_document->paragraphCount())
+        return QPointF(10, 10);
+
+    QFont defaultFont("Microsoft YaHei", 12);
+    QFontMetricsF metrics(defaultFont);
+    qreal lineHeight = metrics.height();
+    qreal leftMargin = 10.0;
+
+    // Y坐标
+    qreal y = leftMargin + pos.paragraph * lineHeight;
+
+    // X坐标：累加直到目标项，再加上项内偏移
+    Paragraph para = m_document->paragraph(pos.paragraph);
+    qreal x = leftMargin;
+    for (int i = 0; i < pos.item; ++i) {
+        const auto &item = para.itemAt(i);
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun run = item.data.value<TextRun>();
+            QFontMetricsF fm(run.format().font());
+            x += fm.horizontalAdvance(run.text());
+        } else { // MathObjectItem
+            x += MathObjectItem::WIDTH;
         }
     }
-    return result;
+
+    // 计算当前项内偏移对应的宽度
+    if (pos.item >= 0 && pos.item < para.itemCount()) {
+        const auto &item = para.itemAt(pos.item);
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun run = item.data.value<TextRun>();
+            QFontMetricsF fm(run.format().font());
+            // 累加前 offset 个字符的宽度
+            QString prefix = run.text().left(pos.offset);
+            x += fm.horizontalAdvance(prefix);
+        } else { // MathObjectItem
+            // 偏移0表示左边界，1表示右边界
+            if (pos.offset == 1)
+                x += MathObjectItem::WIDTH;
+        }
+    }
+
+    return QPointF(x, y);
 }
-core/Document.h
+二、文本插入到正确位置
+需要修改 DocumentController::insertText 和 replaceText，使其能够根据 Position 在指定的项中插入文本。
+
+1. 修改 DocumentController::insertText
+位置：DocumentController.cpp 中的 insertText 函数。
+
+目标：在给定位置的项内插入文本，支持跨项和新建项。
+
+修改后的代码：
+
 cpp
-#ifndef DOCUMENT_H
-#define DOCUMENT_H
+void DocumentController::insertText(const Position &position, const QString &text) {
+    if (!m_document || text.isEmpty()) return;
 
-#include "Paragraph.h"
-#include <QVector>
+    if (position.paragraph >= m_document->paragraphCount()) {
+        // 如果段落索引无效，追加新段落
+        Paragraph newPara;
+        newPara.appendText(text, Format(QFont("Microsoft YaHei", 12)));
+        m_document->insertParagraph(m_document->paragraphCount(), newPara);
+        emit documentChanged();
+        return;
+    }
 
-class Document {
-public:
-    Document();
+    Paragraph &para = m_document->paragraph(position.paragraph);
+    int itemIndex = position.item;
 
-    void addParagraph(const Paragraph &paragraph);
-    void insertParagraph(int index, const Paragraph &paragraph);
-    void removeParagraph(int index);
-    Paragraph paragraph(int index) const;
-    Paragraph &paragraph(int index);
-    int paragraphCount() const;
+    // 如果段落为空或item索引超出，新建项
+    if (para.itemCount() == 0 || itemIndex >= para.itemCount()) {
+        para.appendText(text, Format(QFont("Microsoft YaHei", 12)));
+        emit documentChanged();
+        return;
+    }
 
-    void clear();
+    auto &item = para.itemAt(itemIndex);
+    if (item.type == Paragraph::TextRunItem) {
+        // 在TextRun中插入
+        TextRun run = item.data.value<TextRun>();
+        run.insert(position.offset, text);
+        item.data = QVariant::fromValue(run);
+    } else { // MathObjectItem
+        // 公式项：根据偏移在公式前后插入新TextRun
+        Format defaultFormat(QFont("Microsoft YaHei", 12));
+        Paragraph::Item newItem;
+        newItem.type = Paragraph::TextRunItem;
+        newItem.data = QVariant::fromValue(TextRun(text, defaultFormat));
 
-private:
-    QVector<Paragraph> m_paragraphs;
-};
+        if (position.offset == 0) {
+            // 在公式前插入
+            para.m_items.insert(itemIndex, newItem);
+        } else {
+            // 在公式后插入
+            para.m_items.insert(itemIndex + 1, newItem);
+        }
+        // 调整后续项的索引？不需要，因为itemIndex之后的项自动后移
+    }
 
-#endif // DOCUMENT_H
-core/Document.cpp
-cpp
-#include "Document.h"
-
-Document::Document() {}
-
-void Document::addParagraph(const Paragraph &paragraph) { m_paragraphs.append(paragraph); }
-void Document::insertParagraph(int index, const Paragraph &paragraph) { m_paragraphs.insert(index, paragraph); }
-void Document::removeParagraph(int index) { m_paragraphs.removeAt(index); }
-Paragraph Document::paragraph(int index) const { return m_paragraphs[index]; }
-Paragraph &Document::paragraph(int index) { return m_paragraphs[index]; }
-int Document::paragraphCount() const { return m_paragraphs.size(); }
-void Document::clear() { m_paragraphs.clear(); }
-core/Selection.h
-cpp
-#ifndef SELECTION_H
-#define SELECTION_H
-
-struct Position {
-    int paragraph;      // 段落索引
-    int item;           // 内容项索引（在段落中）
-    int offset;         // 项内偏移：对于文本是字符位置，对于公式是0
-};
-
-inline bool operator==(const Position &a, const Position &b) {
-    return a.paragraph == b.paragraph && a.item == b.item && a.offset == b.offset;
+    emit documentChanged();
 }
-inline bool operator<(const Position &a, const Position &b) {
-    if (a.paragraph != b.paragraph) return a.paragraph < b.paragraph;
-    if (a.item != b.item) return a.item < b.item;
-    return a.offset < b.offset;
+注意：上述代码中访问了 para.m_items，但 Paragraph 的 m_items 是私有成员。需要在 Paragraph 类中添加友元或提供插入方法。为简化，可以直接修改 Paragraph 类，添加一个公共的 insertItem 方法。或者将 m_items 改为 public（不推荐）。这里建议在 Paragraph 中添加：
+
+cpp
+// 在 Paragraph.h 的 public 部分添加
+void insertItem(int index, const Item &item) { m_items.insert(index, item); }
+然后在 DocumentController 中使用 para.insertItem(...)。
+
+2. 修改 DocumentController::replaceText
+当前实现是 deleteText 然后 insertText，但 deleteText 的实现也是简化的。需要同样修改 deleteText 以支持精确删除。
+
+修改 DocumentController::deleteText：
+
+cpp
+void DocumentController::deleteText(const Selection &selection) {
+    if (!m_document) return;
+    if (selection.isEmpty()) return;
+
+    Position start = selection.normalizedStart();
+    Position end = selection.normalizedEnd();
+
+    // 如果跨段落，简化处理：只删除起始段落到结束段落？这里只实现同段落删除
+    if (start.paragraph != end.paragraph) {
+        // 暂时忽略跨段落，或简单清除段落内容
+        return;
+    }
+
+    Paragraph &para = m_document->paragraph(start.paragraph);
+    if (start.item == end.item) {
+        // 同一项内删除
+        if (start.item >= para.itemCount()) return;
+        auto &item = para.itemAt(start.item);
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun run = item.data.value<TextRun>();
+            int len = end.offset - start.offset;
+            if (len > 0 && start.offset < run.length()) {
+                run.remove(start.offset, len);
+                item.data = QVariant::fromValue(run);
+            }
+        } // 公式项不支持内部删除
+    } else {
+        // 跨项删除：复杂，暂不实现
+    }
+    emit documentChanged();
 }
+三、输入法（中文输入）支持
+1. 启用输入法
+确保 DocumentView 启用输入法。当前 DocumentView 构造函数中设置了 setAttribute(Qt::WA_InputMethodEnabled, false);，应移除或改为 true。同时，TextEditorWidget 已经启用了输入法，但事件需要正确传递。
 
-class Selection {
-public:
-    Selection();
-    Selection(const Position &start, const Position &end);
-
-    Position start() const;
-    void setStart(const Position &pos);
-    Position end() const;
-    void setEnd(const Position &pos);
-
-    Position normalizedStart() const;
-    Position normalizedEnd() const;
-
-    bool isEmpty() const;
-    void extend(const Position &pos);
-    void collapseToStart();
-    void collapseToEnd();
-
-    bool operator==(const Selection &other) const;
-    bool operator!=(const Selection &other) const;
-
-private:
-    Position m_start, m_end;
-};
-
-#endif // SELECTION_H
-core/Selection.cpp
-cpp
-#include "Selection.h"
-
-Selection::Selection() : m_start{0,0,0}, m_end{0,0,0} {}
-Selection::Selection(const Position &start, const Position &end) : m_start(start), m_end(end) {}
-
-Position Selection::start() const { return m_start; }
-void Selection::setStart(const Position &pos) { m_start = pos; }
-Position Selection::end() const { return m_end; }
-void Selection::setEnd(const Position &pos) { m_end = pos; }
-
-Position Selection::normalizedStart() const { return m_start < m_end ? m_start : m_end; }
-Position Selection::normalizedEnd() const { return m_start < m_end ? m_end : m_start; }
-
-bool Selection::isEmpty() const { return m_start == m_end; }
-void Selection::extend(const Position &pos) { m_end = pos; }
-void Selection::collapseToStart() { m_end = m_start; }
-void Selection::collapseToEnd() { m_start = m_end; }
-
-bool Selection::operator==(const Selection &other) const { return m_start == other.m_start && m_end == other.m_end; }
-bool Selection::operator!=(const Selection &other) const { return !(*this == other); }
-视图层（图形项）
-view/TextRunItem.h
-cpp
-#ifndef TEXTRUNITEM_H
-#define TEXTRUNITEM_H
-
-#include <QGraphicsTextItem>
-#include "core/TextRun.h"
-
-class TextRunItem : public QGraphicsTextItem {
-public:
-    TextRunItem(const TextRun &run, QGraphicsItem *parent = nullptr);
-
-    void setRun(const TextRun &run);
-    TextRun run() const;
-
-private:
-    TextRun m_run;
-};
-
-#endif // TEXTRUNITEM_H
-view/TextRunItem.cpp
-cpp
-#include "TextRunItem.h"
-
-TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
-    : QGraphicsTextItem(run.text(), parent), m_run(run)
-{
-    setFont(run.format().font());
-    setDefaultTextColor(run.format().color());
-}
-
-void TextRunItem::setRun(const TextRun &run) {
-    m_run = run;
-    setPlainText(run.text());
-    setFont(run.format().font());
-    setDefaultTextColor(run.format().color());
-}
-
-TextRun TextRunItem::run() const { return m_run; }
-view/MathObjectItem.h
-cpp
-#ifndef MATHOBJECTITEM_H
-#define MATHOBJECTITEM_H
-
-#include <QGraphicsItem>
-#include "core/MathObject.h"
-
-class MathObjectItem : public QGraphicsItem {
-public:
-    MathObjectItem(const MathObject &obj, QGraphicsItem *parent = nullptr);
-
-    QRectF boundingRect() const override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
-
-    void setObject(const MathObject &obj);
-    MathObject object() const;
-
-private:
-    MathObject m_obj;
-    static constexpr qreal WIDTH = 30;
-    static constexpr qreal HEIGHT = 20;
-};
-
-#endif // MATHOBJECTITEM_H
-view/MathObjectItem.cpp
-cpp
-#include "MathObjectItem.h"
-#include <QPainter>
-
-MathObjectItem::MathObjectItem(const MathObject &obj, QGraphicsItem *parent)
-    : QGraphicsItem(parent), m_obj(obj) {}
-
-QRectF MathObjectItem::boundingRect() const {
-    return QRectF(0, 0, WIDTH, HEIGHT);
-}
-
-void MathObjectItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) {
-    painter->setPen(Qt::black);
-    painter->setBrush(Qt::lightGray);
-    painter->drawRect(boundingRect());
-    painter->drawText(boundingRect(), Qt::AlignCenter, "[F]");
-}
-
-void MathObjectItem::setObject(const MathObject &obj) { m_obj = obj; update(); }
-MathObject MathObjectItem::object() const { return m_obj; }
-view/Cursor.h
-（复用您的原有代码，但需要调整位置类型）
+修改 DocumentView 构造函数：
 
 cpp
-#ifndef CURSOR_H
-#define CURSOR_H
-
-#include "core/Selection.h"
-#include <QGraphicsItem>
-#include <QTimer>
-#include <QObject>
-
-class Cursor : public QObject, public QGraphicsItem {
-    Q_OBJECT
-public:
-    Cursor(QObject *parent = nullptr, QGraphicsItem *graphicsParent = nullptr);
-
-    void setPosition(const Position &position);
-    Position position() const;
-
-    void show();
-    void hide();
-    bool isVisible() const;
-
-    void startBlinking();
-    void stopBlinking();
-
-    QRectF boundingRect() const override;
-    void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
-
-private slots:
-    void toggleVisibility();
-
-private:
-    Position m_position;
-    bool m_visible;
-    QTimer *m_blinkTimer;
-    static const int BLINK_INTERVAL = 500;
-};
-
-#endif // CURSOR_H
-view/Cursor.cpp
-cpp
-#include "Cursor.h"
-#include <QPainter>
-#include <QFontMetrics>
-
-Cursor::Cursor(QObject *parent, QGraphicsItem *graphicsParent)
-    : QObject(parent), QGraphicsItem(graphicsParent), m_visible(true), m_blinkTimer(new QTimer(this))
-{
-    connect(m_blinkTimer, &QTimer::timeout, this, &Cursor::toggleVisibility);
-}
-
-void Cursor::setPosition(const Position &position) { m_position = position; update(); }
-Position Cursor::position() const { return m_position; }
-void Cursor::show() { m_visible = true; update(); }
-void Cursor::hide() { m_visible = false; update(); }
-bool Cursor::isVisible() const { return m_visible; }
-void Cursor::startBlinking() { m_blinkTimer->start(BLINK_INTERVAL); }
-void Cursor::stopBlinking() { m_blinkTimer->stop(); m_visible = true; update(); }
-
-QRectF Cursor::boundingRect() const {
-    QFont font("Microsoft YaHei", 12);
-    QFontMetrics metrics(font);
-    return QRectF(0, 0, 1, metrics.height());
-}
-
-void Cursor::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) {
-    if (!m_visible) return;
-    QFont font("Microsoft YaHei", 12);
-    QFontMetricsF metrics(font);
-    painter->setPen(QPen(Qt::black, 1.0));
-    painter->drawLine(QPointF(0, 0), QPointF(0, metrics.height()));
-}
-
-void Cursor::toggleVisibility() { m_visible = !m_visible; update(); }
-view/DocumentView.h
-cpp
-#ifndef DOCUMENTVIEW_H
-#define DOCUMENTVIEW_H
-
-#include <QGraphicsView>
-#include <QGraphicsScene>
-#include "core/Document.h"
-#include "core/Selection.h"
-#include "view/Cursor.h"
-
-class DocumentView : public QGraphicsView {
-    Q_OBJECT
-public:
-    DocumentView(QWidget *parent = nullptr);
-
-    void setDocument(Document *document);
-    Document *document() const;
-
-    void setSelection(const Selection &selection);
-    Selection selection() const;
-
-    Cursor *cursor() const;
-
-    void updateLayout();
-    void ensureCursorVisible();
-
-    // 用于输入法查询
-    QVariant inputMethodQueryPublic(Qt::InputMethodQuery query) const;
-
-signals:
-    void selectionChanged(const Selection &selection);
-    void mousePositionChanged(const QPointF &scenePos, const QPoint &viewPos);
-
-protected:
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-    void mouseReleaseEvent(QMouseEvent *event) override;
-    void keyPressEvent(QKeyEvent *event) override;
-    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
-
-public:
-    // 坐标转换
-    Position positionFromPoint(const QPointF &point) const;
-    QPointF pointFromPosition(const Position &pos) const;
-
-private:
-    void updateInputMethod();
-    void clearGraphicsItems();
-    void rebuildScene();
-
-    QGraphicsScene *m_scene;
-    Document *m_document;
-    Selection m_selection;
-    Cursor *m_cursor;
-    bool m_selecting;
-    Position m_selectionStart;
-};
-
-#endif // DOCUMENTVIEW_H
-view/DocumentView.cpp
-cpp
-#include "DocumentView.h"
-#include "TextRunItem.h"
-#include "MathObjectItem.h"
-#include <QMouseEvent>
-#include <QKeyEvent>
-#include <QGuiApplication>
-#include <QInputMethod>
-#include <QFontMetrics>
-
 DocumentView::DocumentView(QWidget *parent)
     : QGraphicsView(parent),
       m_scene(new QGraphicsScene(this)),
@@ -590,889 +261,42 @@ DocumentView::DocumentView(QWidget *parent)
       m_cursor(new Cursor(this)),
       m_selecting(false)
 {
-    setScene(m_scene);
-    m_scene->addItem(m_cursor);
-    setDragMode(NoDrag);
-    setRenderHint(QPainter::Antialiasing);
-    setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    setFrameStyle(QFrame::NoFrame);
-    setViewportMargins(0, 0, 0, 0);
-    m_scene->setSceneRect(0, 0, 800, 600);
-    setFocusPolicy(Qt::NoFocus);          // 焦点交给父控件
-    setAttribute(Qt::WA_InputMethodEnabled, false);
+    // ... 其他代码
+    setAttribute(Qt::WA_InputMethodEnabled, true);  // 启用输入法
 }
+2. 处理输入法事件
+当前 InputController::handleInputMethodEvent 已经处理了提交字符串，但未处理组合字符串的显示。为了在光标处显示组合文本（如拼音），可以在 DocumentView 中添加一个临时的 QGraphicsTextItem 用于绘制组合文本。
 
-void DocumentView::setDocument(Document *document) {
-    m_document = document;
-    if (m_document && m_cursor) {
-        Position start = {0,0,0};
-        m_cursor->setPosition(start);
-    }
-    rebuildScene();
-}
+步骤：
 
-Document *DocumentView::document() const { return m_document; }
+在 DocumentView 中添加成员：QGraphicsTextItem *m_compositionItem; 和 QString m_compositionText;
 
-void DocumentView::setSelection(const Selection &selection) {
-    if (m_selection != selection) {
-        m_selection = selection;
-        if (m_cursor) {
-            m_cursor->setPosition(selection.start());
-            QPointF pt = pointFromPosition(selection.start());
-            m_cursor->setPos(pt);
-        }
-        emit selectionChanged(m_selection);
-        updateInputMethod();
-    }
-}
+在构造函数中创建该 item 并隐藏。
 
-Selection DocumentView::selection() const { return m_selection; }
-Cursor *DocumentView::cursor() const { return m_cursor; }
+在 InputController 中更新组合文本时，通知 DocumentView 显示。
 
-void DocumentView::rebuildScene() {
-    clearGraphicsItems();
-    if (!m_document) return;
+但为了简化，可以先确保输入法能正常提交汉字。组合文本的显示可以后续完善。目前只要输入法事件能正确插入汉字即可。
 
-    QFont font("Microsoft YaHei", 12);
-    QFontMetrics metrics(font);
-    int lineHeight = metrics.height();
-    qreal y = 10;
+3. 确保光标矩形正确
+输入法需要知道光标位置以弹出候选框。DocumentView::inputMethodQuery 已经返回光标矩形，但依赖于 pointFromPosition 的准确性。因此，先修正光标定位后，输入法位置也会正确。
 
-    for (int p = 0; p < m_document->paragraphCount(); ++p) {
-        Paragraph &para = m_document->paragraph(p);
-        qreal x = 10;
-        for (int i = 0; i < para.itemCount(); ++i) {
-            auto &item = para.itemAt(i);
-            QGraphicsItem *gitem = nullptr;
-            if (item.type == Paragraph::TextRunItem) {
-                TextRun run = item.data.value<TextRun>();
-                TextRunItem *titem = new TextRunItem(run);
-                titem->setPos(x, y);
-                gitem = titem;
-                x += titem->boundingRect().width();
-            } else if (item.type == Paragraph::MathObjectItem) {
-                MathObject obj = item.data.value<MathObject>();
-                MathObjectItem *mitem = new MathObjectItem(obj);
-                mitem->setPos(x, y);
-                gitem = mitem;
-                x += mitem->boundingRect().width();
-            }
-            if (gitem) {
-                m_scene->addItem(gitem);
-            }
-        }
-        y += lineHeight;
-    }
+4. 测试中文输入
+在 TextEditorWidget 中，输入法事件被转发给 InputController，InputController 会调用 DocumentController 插入文本，然后更新视图。这应该能工作。
 
-    if (m_cursor) {
-        QPointF pt = pointFromPosition(m_cursor->position());
-        m_cursor->setPos(pt);
-    }
+四、其他建议
+光标闪烁：当前 Cursor 已经实现闪烁，但需要确保在获得焦点时启动。可以在 DocumentView 的 focusInEvent 中调用 m_cursor->startBlinking()，在 focusOutEvent 中调用 stopBlinking()。
 
-    m_scene->setSceneRect(m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10));
-}
+选择高亮：当前未实现选择区域的绘制，但这不是当前重点。
 
-void DocumentView::clearGraphicsItems() {
-    QList<QGraphicsItem*> items = m_scene->items();
-    for (auto item : items) {
-        if (item != m_cursor) {
-            m_scene->removeItem(item);
-            delete item;
-        }
-    }
-}
+性能优化：每次插入都重建整个场景（rebuildScene）可能影响性能，但对于小型编辑器可接受。
 
-void DocumentView::updateLayout() {
-    rebuildScene();
-    ensureCursorVisible();
-}
+五、总结
+主要修改点：
 
-void DocumentView::ensureCursorVisible() {
-    if (m_cursor) {
-        QRectF rect = m_cursor->boundingRect();
-        rect.moveTo(m_cursor->pos());
-        ensureVisible(rect);
-    }
-}
+重写 DocumentView::positionFromPoint 和 pointFromPosition 实现精确光标定位。
 
-void DocumentView::mousePressEvent(QMouseEvent *event) {
-    QGraphicsView::mousePressEvent(event);
-    if (event->button() == Qt::LeftButton) {
-        if (parentWidget()) parentWidget()->setFocus();
+修改 DocumentController::insertText 和 deleteText 支持在指定位置插入/删除。
 
-        QPointF scenePos = mapToScene(event->pos());
-        m_selectionStart = positionFromPoint(scenePos);
-        m_selecting = true;
-        setSelection(Selection(m_selectionStart, m_selectionStart));
-        m_cursor->show();
-        m_cursor->stopBlinking();
-        ensureCursorVisible();
-        updateInputMethod();
-    }
-}
+启用 DocumentView 的输入法支持，并确保输入法事件处理正确。
 
-void DocumentView::mouseMoveEvent(QMouseEvent *event) {
-    QGraphicsView::mouseMoveEvent(event);
-    emit mousePositionChanged(mapToScene(event->pos()), event->pos());
-    if (m_selecting && (event->buttons() & Qt::LeftButton)) {
-        Position endPos = positionFromPoint(mapToScene(event->pos()));
-        setSelection(Selection(m_selectionStart, endPos));
-    }
-}
-
-void DocumentView::mouseReleaseEvent(QMouseEvent *event) {
-    QGraphicsView::mouseReleaseEvent(event);
-    if (event->button() == Qt::LeftButton && m_selecting) {
-        m_selecting = false;
-        m_cursor->startBlinking();
-        ensureCursorVisible();
-        updateInputMethod();
-    }
-}
-
-void DocumentView::keyPressEvent(QKeyEvent *event) {
-    event->ignore(); // 让父控件处理
-}
-
-Position DocumentView::positionFromPoint(const QPointF &point) const {
-    if (!m_document) return {0,0,0};
-
-    QFont font("Microsoft YaHei", 12);
-    QFontMetricsF metrics(font);
-    qreal lineHeight = metrics.height();
-    qreal leftMargin = 10;
-
-    int paraIndex = qMax(0, int((point.y() - leftMargin) / lineHeight));
-    if (paraIndex >= m_document->paragraphCount())
-        paraIndex = m_document->paragraphCount() - 1;
-
-    const Paragraph &para = m_document->paragraph(paraIndex);
-    qreal x = leftMargin;
-    for (int i = 0; i < para.itemCount(); ++i) {
-        const auto &item = para.itemAt(i);
-        QRectF rect;
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            rect = QFontMetricsF(metrics).boundingRect(run.text());
-            rect.moveLeft(x);
-        } else {
-            rect = QRectF(x, leftMargin + paraIndex * lineHeight, 30, 20); // 公式项大小
-        }
-
-        if (point.x() < rect.right()) {
-            // 在项内部
-            if (item.type == Paragraph::TextRunItem) {
-                TextRun run = item.data.value<TextRun>();
-                QString text = run.text();
-                // 计算字符位置
-                int offset = 0;
-                qreal charX = x;
-                while (offset < text.length()) {
-                    qreal charWidth = metrics.horizontalAdvance(text[offset]);
-                    if (point.x() < charX + charWidth / 2) {
-                        break; // 光标在字符前
-                    }
-                    charX += charWidth;
-                    offset++;
-                }
-                return {paraIndex, i, offset};
-            } else {
-                // 公式项，偏移为0
-                return {paraIndex, i, 0};
-            }
-        }
-        x = rect.right();
-    }
-    // 在段落末尾，返回最后一项的末尾
-    return {paraIndex, para.itemCount(), 0};
-}
-
-QPointF DocumentView::pointFromPosition(const Position &pos) const {
-    if (!m_document) return QPointF(10,10);
-
-    QFont font("Microsoft YaHei", 12);
-    QFontMetricsF metrics(font);
-    qreal lineHeight = metrics.height();
-    qreal leftMargin = 10;
-
-    int paraIndex = pos.paragraph;
-    if (paraIndex >= m_document->paragraphCount()) paraIndex = m_document->paragraphCount() - 1;
-
-    const Paragraph &para = m_document->paragraph(paraIndex);
-    qreal y = leftMargin + paraIndex * lineHeight;
-
-    qreal x = leftMargin;
-    for (int i = 0; i < qMin(pos.item, para.itemCount()); ++i) {
-        const auto &item = para.itemAt(i);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            x += QFontMetricsF(metrics).horizontalAdvance(run.text());
-        } else {
-            x += 30; // 公式项宽度
-        }
-    }
-
-    // 如果位置指向项内部且该项是文本，则增加内部偏移
-    if (pos.item < para.itemCount() && pos.offset > 0) {
-        const auto &item = para.itemAt(pos.item);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            QString prefix = run.text().left(pos.offset);
-            x += QFontMetricsF(metrics).horizontalAdvance(prefix);
-        }
-    }
-
-    return QPointF(x, y);
-}
-
-QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
-    if (!m_cursor) return QGraphicsView::inputMethodQuery(query);
-    switch (query) {
-    case Qt::ImCursorRectangle: {
-        QPointF scenePos = pointFromPosition(m_cursor->position());
-        QPoint viewPos = mapFromScene(scenePos);
-        QFont font("Microsoft YaHei", 12);
-        QFontMetricsF metrics(font);
-        return QRect(viewPos.x(), viewPos.y(), 2, metrics.height());
-    }
-    case Qt::ImFont: {
-        QFont font("Microsoft YaHei", 12);
-        return font;
-    }
-    case Qt::ImCursorPosition:
-        return m_cursor->position().offset;
-    case Qt::ImSurroundingText: {
-        if (m_document && m_cursor->position().paragraph < m_document->paragraphCount()) {
-            const Paragraph &para = m_document->paragraph(m_cursor->position().paragraph);
-            if (m_cursor->position().item < para.itemCount()) {
-                const auto &item = para.itemAt(m_cursor->position().item);
-                if (item.type == Paragraph::TextRunItem)
-                    return item.data.value<TextRun>().text();
-            }
-        }
-        return QString();
-    }
-    default:
-        return QGraphicsView::inputMethodQuery(query);
-    }
-}
-
-QVariant DocumentView::inputMethodQueryPublic(Qt::InputMethodQuery query) const {
-    return inputMethodQuery(query);
-}
-
-void DocumentView::updateInputMethod() {
-    if (QInputMethod *im = QGuiApplication::inputMethod()) {
-        im->update(Qt::ImQueryAll);
-    }
-}
-控制器类
-controller/DocumentController.h
-cpp
-#ifndef DOCUMENTCONTROLLER_H
-#define DOCUMENTCONTROLLER_H
-
-#include <QObject>
-#include "core/Document.h"
-#include "core/Selection.h"
-
-class DocumentController : public QObject {
-    Q_OBJECT
-public:
-    explicit DocumentController(QObject *parent = nullptr);
-
-    void setDocument(Document *doc);
-    Document *document() const;
-
-    void insertText(const Position &pos, const QString &text, const Format &format = Format());
-    void insertMathObject(const Position &pos, const MathObject &obj);
-    void deleteText(const Selection &sel);
-    void replaceText(const Selection &sel, const QString &text);
-
-signals:
-    void documentChanged();
-
-private:
-    Document *m_document;
-};
-
-#endif // DOCUMENTCONTROLLER_H
-controller/DocumentController.cpp
-cpp
-#include "DocumentController.h"
-#include "core/TextRun.h"
-#include "core/Paragraph.h"
-
-DocumentController::DocumentController(QObject *parent) : QObject(parent), m_document(nullptr) {}
-
-void DocumentController::setDocument(Document *doc) { m_document = doc; }
-Document *DocumentController::document() const { return m_document; }
-
-void DocumentController::insertText(const Position &pos, const QString &text, const Format &format) {
-    if (!m_document) return;
-    // 简化：直接在当前项插入或新建项
-    Paragraph &para = m_document->paragraph(pos.paragraph);
-    if (pos.item < para.itemCount()) {
-        auto &item = para.itemAt(pos.item);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            run.insert(pos.offset, text);
-            item.data = QVariant::fromValue(run);
-        } else {
-            // 公式项之后插入新文本项
-            Paragraph::Item newItem;
-            newItem.type = Paragraph::TextRunItem;
-            newItem.data = QVariant::fromValue(TextRun(text, format));
-            para.itemAt(pos.item) = newItem; // 简化：实际应插入，这里直接替换
-        }
-    } else {
-        // 段落末尾追加新项
-        para.appendText(text, format);
-    }
-    emit documentChanged();
-}
-
-void DocumentController::insertMathObject(const Position &pos, const MathObject &obj) {
-    if (!m_document) return;
-    Paragraph &para = m_document->paragraph(pos.paragraph);
-    para.appendMathObject(obj); // 简化：追加到段落末尾
-    emit documentChanged();
-}
-
-void DocumentController::deleteText(const Selection &sel) {
-    if (!m_document || sel.isEmpty()) return;
-    // 简化实现：仅处理同一项内删除
-    Position start = sel.normalizedStart();
-    Position end = sel.normalizedEnd();
-    if (start.paragraph == end.paragraph && start.item == end.item) {
-        Paragraph &para = m_document->paragraph(start.paragraph);
-        auto &item = para.itemAt(start.item);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            run.remove(start.offset, end.offset - start.offset);
-            item.data = QVariant::fromValue(run);
-        }
-    }
-    emit documentChanged();
-}
-
-void DocumentController::replaceText(const Selection &sel, const QString &text) {
-    deleteText(sel);
-    insertText(sel.start(), text);
-}
-controller/SelectionController.h
-cpp
-#ifndef SELECTIONCONTROLLER_H
-#define SELECTIONCONTROLLER_H
-
-#include <QObject>
-#include "core/Selection.h"
-
-class SelectionController : public QObject {
-    Q_OBJECT
-public:
-    explicit SelectionController(QObject *parent = nullptr);
-
-    Selection selection() const;
-    void setSelection(const Selection &sel);
-
-    bool hasSelection() const;
-    bool isSelectionEmpty() const;
-
-    void moveCursorLeft(bool extend = false);
-    void moveCursorRight(bool extend = false);
-    void moveCursorUp(bool extend = false);
-    void moveCursorDown(bool extend = false);
-    void moveCursorToStartOfLine(bool extend = false);
-    void moveCursorToEndOfLine(bool extend = false);
-
-signals:
-    void selectionChanged(const Selection &selection);
-
-private:
-    Selection m_selection;
-};
-
-#endif // SELECTIONCONTROLLER_H
-controller/SelectionController.cpp
-cpp
-#include "SelectionController.h"
-
-SelectionController::SelectionController(QObject *parent) : QObject(parent) {}
-
-Selection SelectionController::selection() const { return m_selection; }
-void SelectionController::setSelection(const Selection &sel) {
-    if (m_selection != sel) {
-        m_selection = sel;
-        emit selectionChanged(m_selection);
-    }
-}
-bool SelectionController::hasSelection() const { return !m_selection.isEmpty(); }
-bool SelectionController::isSelectionEmpty() const { return m_selection.isEmpty(); }
-
-// 简化光标移动（需结合文档结构实现）
-void SelectionController::moveCursorLeft(bool extend) {
-    Position pos = m_selection.end();
-    if (pos.offset > 0) {
-        pos.offset--;
-    } else if (pos.item > 0) {
-        pos.item--;
-        // 跳转到前一项的末尾（如果是文本项）
-        // 需要文档信息，这里简化
-        pos.offset = 0;
-    } else if (pos.paragraph > 0) {
-        pos.paragraph--;
-        pos.item = 0;
-        pos.offset = 0;
-    }
-    if (extend)
-        m_selection.setEnd(pos);
-    else
-        m_selection = Selection(pos, pos);
-    emit selectionChanged(m_selection);
-}
-
-void SelectionController::moveCursorRight(bool extend) {
-    Position pos = m_selection.end();
-    pos.offset++;
-    if (!extend)
-        m_selection = Selection(pos, pos);
-    else
-        m_selection.setEnd(pos);
-    emit selectionChanged(m_selection);
-}
-
-// 其他方向类似...
-controller/InputController.h
-cpp
-#ifndef INPUTCONTROLLER_H
-#define INPUTCONTROLLER_H
-
-#include <QObject>
-#include <QKeyEvent>
-#include <QInputMethodEvent>
-#include "DocumentController.h"
-#include "SelectionController.h"
-
-class DocumentView;
-
-class InputController : public QObject {
-    Q_OBJECT
-public:
-    explicit InputController(QObject *parent = nullptr);
-
-    void setDocumentController(DocumentController *dc);
-    void setSelectionController(SelectionController *sc);
-    void setDocumentView(DocumentView *view);
-
-    void handleKeyPress(QKeyEvent *event);
-    void handleInputMethodEvent(QInputMethodEvent *event);
-
-private:
-    DocumentController *m_documentController;
-    SelectionController *m_selectionController;
-    DocumentView *m_documentView;
-    QString m_composingText;
-};
-
-#endif // INPUTCONTROLLER_H
-controller/InputController.cpp
-cpp
-#include "InputController.h"
-#include "view/DocumentView.h"
-#include <QDebug>
-
-InputController::InputController(QObject *parent)
-    : QObject(parent), m_documentController(nullptr), m_selectionController(nullptr), m_documentView(nullptr) {}
-
-void InputController::setDocumentController(DocumentController *dc) { m_documentController = dc; }
-void InputController::setSelectionController(SelectionController *sc) { m_selectionController = sc; }
-void InputController::setDocumentView(DocumentView *view) { m_documentView = view; }
-
-void InputController::handleKeyPress(QKeyEvent *event) {
-    if (!m_documentController || !m_selectionController) return;
-
-    Selection sel = m_selectionController->selection();
-
-    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
-        // 插入新段落（简化）
-        m_documentController->document()->addParagraph(Paragraph());
-        m_selectionController->setSelection(Selection({m_documentController->document()->paragraphCount()-1,0,0},
-                                                       {m_documentController->document()->paragraphCount()-1,0,0}));
-        if (m_documentView) m_documentView->updateLayout();
-        event->accept();
-    }
-    else if (event->key() == Qt::Key_Backspace) {
-        if (sel.isEmpty()) {
-            Position pos = sel.start();
-            if (pos.offset > 0) {
-                // 删除前一个字符
-                Selection delSel({pos.paragraph, pos.item, pos.offset-1}, pos);
-                m_documentController->deleteText(delSel);
-                m_selectionController->setSelection(Selection(delSel.start(), delSel.start()));
-            }
-        } else {
-            m_documentController->deleteText(sel);
-            m_selectionController->setSelection(Selection(sel.start(), sel.start()));
-        }
-        if (m_documentView) m_documentView->updateLayout();
-        event->accept();
-    }
-    else if (event->key() == Qt::Key_F1) {
-        // 测试插入公式
-        MathObject obj(MathObject::Placeholder);
-        obj.setLatex("\\int");
-        m_documentController->insertMathObject(sel.start(), obj);
-        if (m_documentView) m_documentView->updateLayout();
-        event->accept();
-    }
-    else if (!event->text().isEmpty() && event->text()[0].isPrint()) {
-        QString text = event->text();
-        if (m_selectionController->hasSelection()) {
-            m_documentController->replaceText(sel, text);
-            Position newPos = sel.start();
-            newPos.offset += text.length();
-            m_selectionController->setSelection(Selection(newPos, newPos));
-        } else {
-            m_documentController->insertText(sel.start(), text);
-            Position newPos = sel.start();
-            newPos.offset += text.length();
-            m_selectionController->setSelection(Selection(newPos, newPos));
-        }
-        if (m_documentView) m_documentView->updateLayout();
-        event->accept();
-    }
-}
-
-void InputController::handleInputMethodEvent(QInputMethodEvent *event) {
-    if (!m_documentController || !m_selectionController) return;
-
-    Selection sel = m_selectionController->selection();
-
-    if (!event->commitString().isEmpty()) {
-        QString text = event->commitString();
-        if (m_selectionController->hasSelection()) {
-            m_documentController->replaceText(sel, text);
-            Position newPos = sel.start();
-            newPos.offset += text.length();
-            m_selectionController->setSelection(Selection(newPos, newPos));
-        } else {
-            m_documentController->insertText(sel.start(), text);
-            Position newPos = sel.start();
-            newPos.offset += text.length();
-            m_selectionController->setSelection(Selection(newPos, newPos));
-        }
-        if (m_documentView) m_documentView->updateLayout();
-        m_composingText.clear();
-    }
-
-    if (!event->preeditString().isEmpty()) {
-        m_composingText = event->preeditString();
-        // 显示组合文本（暂不实现）
-    } else {
-        m_composingText.clear();
-    }
-    event->accept();
-}
-主控件 TextEditorWidget
-view/TextEditorWidget.h
-cpp
-#ifndef TEXTEDITORWIDGET_H
-#define TEXTEDITORWIDGET_H
-
-#include <QWidget>
-#include <QVBoxLayout>
-#include <QStatusBar>
-#include <QLabel>
-#include "DocumentView.h"
-#include "controller/DocumentController.h"
-#include "controller/SelectionController.h"
-#include "controller/InputController.h"
-
-class TextEditorWidget : public QWidget {
-    Q_OBJECT
-public:
-    explicit TextEditorWidget(QWidget *parent = nullptr);
-
-    void setDocument(Document *doc);
-    Document *document() const;
-    DocumentView *documentView() const;
-
-    void cut();
-    void copy();
-    void paste();
-    void undo();
-    void redo();
-
-protected:
-    void keyPressEvent(QKeyEvent *event) override;
-    void mousePressEvent(QMouseEvent *event) override;
-    void inputMethodEvent(QInputMethodEvent *event) override;
-    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
-
-private slots:
-    void onSelectionChanged(const Selection &sel);
-    void onDocumentChanged();
-
-private:
-    void updateStatusBar();
-
-    QVBoxLayout *m_layout;
-    DocumentView *m_documentView;
-    DocumentController *m_documentController;
-    SelectionController *m_selectionController;
-    InputController *m_inputController;
-    QStatusBar *m_statusBar;
-    QLabel *m_cursorPositionLabel;
-};
-
-#endif // TEXTEDITORWIDGET_H
-view/TextEditorWidget.cpp
-cpp
-#include "TextEditorWidget.h"
-#include <QKeyEvent>
-#include <QInputMethodEvent>
-
-TextEditorWidget::TextEditorWidget(QWidget *parent)
-    : QWidget(parent),
-      m_layout(new QVBoxLayout(this)),
-      m_documentView(new DocumentView(this)),
-      m_documentController(new DocumentController(this)),
-      m_selectionController(new SelectionController(this)),
-      m_inputController(new InputController(this)),
-      m_statusBar(new QStatusBar(this)),
-      m_cursorPositionLabel(new QLabel("位置: 0,0,0"))
-{
-    m_layout->addWidget(m_documentView);
-    m_layout->addWidget(m_statusBar);
-    m_layout->setContentsMargins(0,0,0,0);
-    setLayout(m_layout);
-    m_statusBar->addWidget(m_cursorPositionLabel);
-
-    setFocusPolicy(Qt::StrongFocus);
-    setAttribute(Qt::WA_InputMethodEnabled, true);
-
-    m_inputController->setDocumentController(m_documentController);
-    m_inputController->setSelectionController(m_selectionController);
-    m_inputController->setDocumentView(m_documentView);
-
-    connect(m_selectionController, &SelectionController::selectionChanged,
-            this, &TextEditorWidget::onSelectionChanged);
-    connect(m_documentView, &DocumentView::selectionChanged,
-            this, &TextEditorWidget::onSelectionChanged);
-    connect(m_documentController, &DocumentController::documentChanged,
-            this, &TextEditorWidget::onDocumentChanged);
-}
-
-void TextEditorWidget::setDocument(Document *doc) {
-    m_documentView->setDocument(doc);
-    m_documentController->setDocument(doc);
-    if (doc && doc->paragraphCount() == 0) {
-        doc->addParagraph(Paragraph());
-    }
-    updateStatusBar();
-}
-
-Document *TextEditorWidget::document() const { return m_documentView->document(); }
-DocumentView *TextEditorWidget::documentView() const { return m_documentView; }
-
-void TextEditorWidget::keyPressEvent(QKeyEvent *event) {
-    if (m_inputController) {
-        m_inputController->handleKeyPress(event);
-        if (event->isAccepted()) {
-            event->accept();
-            return;
-        }
-    }
-    QWidget::keyPressEvent(event);
-}
-
-void TextEditorWidget::mousePressEvent(QMouseEvent *event) {
-    QWidget::mousePressEvent(event);
-    setFocus();
-}
-
-void TextEditorWidget::inputMethodEvent(QInputMethodEvent *event) {
-    if (m_inputController) {
-        m_inputController->handleInputMethodEvent(event);
-        if (event->isAccepted()) return;
-    }
-    QWidget::inputMethodEvent(event);
-}
-
-QVariant TextEditorWidget::inputMethodQuery(Qt::InputMethodQuery query) const {
-    if (m_documentView)
-        return m_documentView->inputMethodQueryPublic(query);
-    return QWidget::inputMethodQuery(query);
-}
-
-void TextEditorWidget::onSelectionChanged(const Selection &sel) {
-    m_documentView->setSelection(sel);
-    m_documentView->ensureCursorVisible();
-    updateStatusBar();
-}
-
-void TextEditorWidget::onDocumentChanged() {
-    m_documentView->updateLayout();
-}
-
-void TextEditorWidget::updateStatusBar() {
-    if (m_documentView && m_documentView->cursor()) {
-        Position pos = m_documentView->cursor()->position();
-        QString text = QString("段落:%1 项:%2 偏移:%3").arg(pos.paragraph).arg(pos.item).arg(pos.offset);
-        m_cursorPositionLabel->setText(text);
-    }
-}
-
-void TextEditorWidget::cut() {}
-void TextEditorWidget::copy() {}
-void TextEditorWidget::paste() {}
-void TextEditorWidget::undo() {}
-void TextEditorWidget::redo() {}
-IO 模块（简化）
-io/DocumentReader.h
-cpp
-#ifndef DOCUMENTREADER_H
-#define DOCUMENTREADER_H
-
-#include "core/Document.h"
-#include <QString>
-
-class DocumentReader {
-public:
-    DocumentReader();
-    Document *read(const QString &fileName);
-    bool hasError() const;
-    QString errorString() const;
-private:
-    bool m_hasError;
-    QString m_errorString;
-};
-
-#endif
-io/DocumentReader.cpp
-cpp
-#include "DocumentReader.h"
-#include <QFile>
-#include <QTextStream>
-
-DocumentReader::DocumentReader() : m_hasError(false) {}
-
-Document *DocumentReader::read(const QString &fileName) {
-    QFile file(fileName);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        m_hasError = true;
-        m_errorString = file.errorString();
-        return nullptr;
-    }
-    QTextStream stream(&file);
-    Document *doc = new Document;
-    while (!stream.atEnd()) {
-        QString line = stream.readLine();
-        Paragraph para;
-        para.appendText(line);
-        doc->addParagraph(para);
-    }
-    file.close();
-    m_hasError = false;
-    return doc;
-}
-
-bool DocumentReader::hasError() const { return m_hasError; }
-QString DocumentReader::errorString() const { return m_errorString; }
-io/DocumentWriter.h
-cpp
-#ifndef DOCUMENTWRITER_H
-#define DOCUMENTWRITER_H
-
-#include "core/Document.h"
-#include <QString>
-
-class DocumentWriter {
-public:
-    DocumentWriter();
-    bool write(const Document *doc, const QString &fileName);
-    bool hasError() const;
-    QString errorString() const;
-private:
-    bool m_hasError;
-    QString m_errorString;
-};
-
-#endif
-io/DocumentWriter.cpp
-cpp
-#include "DocumentWriter.h"
-#include <QFile>
-#include <QTextStream>
-
-DocumentWriter::DocumentWriter() : m_hasError(false) {}
-
-bool DocumentWriter::write(const Document *doc, const QString &fileName) {
-    QFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        m_hasError = true;
-        m_errorString = file.errorString();
-        return false;
-    }
-    QTextStream stream(&file);
-    for (int i = 0; i < doc->paragraphCount(); ++i) {
-        stream << doc->paragraph(i).plainText() << "\n";
-    }
-    file.close();
-    m_hasError = false;
-    return true;
-}
-
-bool DocumentWriter::hasError() const { return m_hasError; }
-QString DocumentWriter::errorString() const { return m_errorString; }
-主函数 main.cpp
-cpp
-#include <QApplication>
-#include "view/TextEditorWidget.h"
-#include "core/Document.h"
-
-int main(int argc, char *argv[]) {
-    QApplication app(argc, argv);
-
-    TextEditorWidget editor;
-    Document doc;
-    // 添加一个初始段落
-    Paragraph para;
-    para.appendText("你好，这是一个可扩展的数学公式编辑器！按 F1 插入公式占位符。");
-    doc.addParagraph(para);
-    editor.setDocument(&doc);
-
-    editor.resize(800, 600);
-    editor.show();
-
-    return app.exec();
-}
-编译与运行
-将所有文件按目录结构放置。
-
-在项目文件（.pro）中添加必要的模块：QT += widgets gui core。
-
-编译并运行。
-
-功能说明
-文本输入：可以输入普通文本，支持退格删除。
-
-光标移动：鼠标点击可定位到字符间隙（基于最近字符中心点）。
-
-公式插入：按 F1 会在当前段落末尾插入一个灰色的矩形占位符，代表公式对象。
-
-状态栏：显示当前光标位置（段落索引、内容项索引、偏移量）。
-
-输入法：支持中文输入法（事件已转发给控制器，但组合文本显示未实现）。
-
-未来扩展
-公式树：将 MathObject 改为树结构，包含子节点。
-
-图形项：为每种公式节点实现专门的 QGraphicsItem，实现 TeX 风格的布局。
-
-I/O：实现 LaTeX 或 MathML 的读写。
-
-工具栏：添加符号面板，插入公式结构。
-
-这个架构清晰地将模型、视图、控制器分离，并且为公式的嵌入预留了扩展点。您可以根据需要逐步完善。
+完成上述修改后，编辑器应能支持精确光标放置、正确位置插入文本以及中文输入。如果仍有问题，请提供具体的错误现象以便进一步调试。

@@ -5,9 +5,6 @@
 // ============================================================================
 
 #include "view/TextEditorWidget.h"
-#include "core/Document.h"
-#include "core/Paragraph.h"
-#include "core/Run.h"
 #include <QApplication>
 #include <QMainWindow>
 #include <QMenuBar>
@@ -36,18 +33,6 @@ int main(int argc, char *argv[])
     mainWindow.setWindowTitle("MathEditor");
     mainWindow.resize(800, 600);
     
-    qDebug() << "Creating status bar...";
-    // 创建状态栏
-    QStatusBar *statusBar = mainWindow.statusBar();
-    
-    // 创建鼠标坐标显示标签
-    QLabel *mousePositionLabel = new QLabel("鼠标坐标: (0, 0)");
-    statusBar->addPermanentWidget(mousePositionLabel);
-    
-    // 创建文档状态显示标签
-    QLabel *documentStatusLabel = new QLabel("就绪");
-    statusBar->addWidget(documentStatusLabel);
-    
     qDebug() << "Creating menu bar...";
     // 创建菜单栏
     QMenuBar *menuBar = mainWindow.menuBar();
@@ -71,24 +56,9 @@ int main(int argc, char *argv[])
     editMenu->addSeparator();
     QAction *selectAllAction = editMenu->addAction("全选");
     
-    qDebug() << "Creating document...";
-    // 创建文档
-    Document *document = new Document();
-    
-    qDebug() << "Adding paragraphs...";
-    // 添加一些示例文本
-    Paragraph paragraph1;
-    paragraph1.setText("Hello, this is a test document.");
-    document->addParagraph(paragraph1);
-    
-    Paragraph paragraph2;
-    paragraph2.setText("This is the second paragraph.");
-    document->addParagraph(paragraph2);
-    
     qDebug() << "Creating TextEditorWidget...";
-    // 创建文本编辑器部件
+    // 创建文本编辑器部件（内部已包含文档和状态栏）
     TextEditorWidget *editorWidget = new TextEditorWidget();
-    editorWidget->setDocument(document);
     
     qDebug() << "Setting central widget...";
     // 设置中央部件
@@ -96,15 +66,6 @@ int main(int argc, char *argv[])
     
     // 连接信号槽
     QObject::connect(exitAction, &QAction::triggered, &a, &QApplication::quit);
-    
-    // 连接鼠标位置更新信号
-    QObject::connect(editorWidget->documentView(), &DocumentView::mousePositionChanged, 
-                     [mousePositionLabel](const QPointF& scenePos, const QPoint& viewPos) {
-                         QString text = QString("鼠标坐标: 场景(%1, %2) 视图(%3, %4)")
-                                       .arg(scenePos.x()).arg(scenePos.y())
-                                       .arg(viewPos.x()).arg(viewPos.y());
-                         mousePositionLabel->setText(text);
-                     });
     
     qDebug() << "Showing main window...";
     // 显示主窗口
@@ -115,8 +76,6 @@ int main(int argc, char *argv[])
     int result = a.exec();
     
     qDebug() << "Exiting event loop with result:" << result;
-    // 清理资源
-    delete document;
     
     qDebug() << "Application exiting...";
     return result;
