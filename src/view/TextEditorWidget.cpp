@@ -34,12 +34,19 @@ TextEditorWidget::TextEditorWidget(QWidget *parent)
       m_documentView(new DocumentView(this)),    // 文档视图组件
       m_inputController(new InputController(this)),     // 输入事件控制器
       m_documentController(new DocumentController(this)), // 文档操作控制器
-      m_selectionController(new SelectionController(this)) // 选择状态控制器
+      m_selectionController(new SelectionController(this)), // 选择状态控制器
+      m_statusBar(new QStatusBar(this)),         // 状态栏
+      m_cursorPositionLabel(new QLabel("光标位置: 第1行, 第1列")) // 光标位置标签
 {
-    // 将文档视图添加到布局中并设置无边距
+    // 将文档视图添加到布局中
     m_layout->addWidget(m_documentView);
+    // 添加状态栏
+    m_layout->addWidget(m_statusBar);
     m_layout->setContentsMargins(0, 0, 0, 0);
     setLayout(m_layout);
+    
+    // 设置状态栏
+    m_statusBar->addWidget(m_cursorPositionLabel);
     
     // 设置焦点策略和输入法支持
     setFocusPolicy(Qt::StrongFocus);                    // 强焦点策略，可接收键盘输入
@@ -54,6 +61,10 @@ TextEditorWidget::TextEditorWidget(QWidget *parent)
     // 建立信号连接以实现组件间的状态同步
     // 当选择状态改变时，更新视图显示
     connect(m_selectionController, &SelectionController::selectionChanged, 
+            this, &TextEditorWidget::onSelectionChanged);
+    
+    // 当文档视图的选择状态改变时（如鼠标点击），更新视图显示
+    connect(m_documentView, &DocumentView::selectionChanged, 
             this, &TextEditorWidget::onSelectionChanged);
     
     // 当文档内容改变时，更新视图布局
@@ -103,6 +114,9 @@ void TextEditorWidget::onSelectionChanged(const Selection &selection)
     // 确保光标当前位置可见
     // 如果光标移出了可视区域，会自动滚动到合适位置
     m_documentView->ensureCursorVisible();
+    
+    // 更新状态栏
+    updateStatusBar();
 }
 
 /**
@@ -153,6 +167,9 @@ void TextEditorWidget::setDocument(Document *document)
         Paragraph paragraph;
         document->addParagraph(paragraph);
     }
+    
+    // 更新状态栏，显示初始光标位置
+    updateStatusBar();
 }
 
 /**
@@ -218,6 +235,91 @@ void TextEditorWidget::redo()
     // 1. 调用文档控制器的重做方法
     // 2. 更新视图显示
     // 3. 更新光标和选择状态
+}
+
+/**
+ * @brief 更新状态栏
+ * 更新光标位置信息显示
+ */
+void TextEditorWidget::updateStatusBar()
+{
+    if (m_documentView && m_documentView->cursor()) {
+        Selection::Position pos = m_documentView->cursor()->position();
+        int line = pos.paragraph + 1; // 行号从1开始
+        int column = pos.position + 1; // 列号从1开始
+        
+        // 获取光标坐标（场景坐标）
+        QPointF cursorPos = m_documentView->pointFromPosition(pos);
+        
+        // 获取光标左右字符
+        QString leftChar = "无";
+        QString rightChar = "无";
+        qreal leftCharWidth = 0;
+        qreal rightCharWidth = 0;
+        QPointF leftCharPos(0, 0);
+        QPointF rightCharPos(0, 0);
+        
+        if (m_documentView->document()) {
+            Document *doc = m_documentView->document();
+            if (pos.paragraph >= 0 && pos.paragraph < doc->paragraphCount()) {
+                Paragraph paragraph = doc->paragraph(pos.paragraph);
+                QString text = paragraph.text();
+                
+                // 获取字体度量 - 使用浮点版本
+                QFont font("Microsoft YaHei", 12);
+                QFontMetricsF metrics(font);
+                qreal lineHeight = metrics.height();
+                
+                // 获取左侧字符（光标左侧的字符）
+                if (pos.position > 0 && pos.position <= text.length()) {
+                    leftChar = text.mid(pos.position - 1, 1);
+                    leftCharWidth = metrics.horizontalAdvance(leftChar);
+                    
+                    // 计算左侧字符的位置（场景坐标）
+                    Selection::Position leftPos = pos;
+                    leftPos.position--;
+                    leftCharPos = m_documentView->pointFromPosition(leftPos);
+                }
+                
+                // 获取右侧字符（光标右侧的字符）
+                if (pos.position >= 0 && pos.position < text.length()) {
+                    rightChar = text.mid(pos.position, 1);
+                    rightCharWidth = metrics.horizontalAdvance(rightChar);
+                    
+                    // 计算右侧字符的位置（场景坐标）
+                    Selection::Position rightPos = pos;
+                    rightCharPos = m_documentView->pointFromPosition(rightPos);
+                }
+            }
+        }
+        
+        // 简化状态栏显示，只显示关键信息
+        QString calculationInfo = QString("光标定位算法: 最近间隙");
+        QString calculationInfo2 = QString("坐标计算: 累积宽度");
+        QString calculationInfo3 = QString("精度: 浮点计算");
+        
+        // 使用3行显示状态栏信息
+        QString statusText = QString("第%1行, 第%2列 | 光标位置索引:%3 | 场景坐标: (%4,%5)\n")
+            .arg(line).arg(column).arg(pos.position).arg(cursorPos.x(), 0, 'f', 2).arg(cursorPos.y(), 0, 'f', 2);
+        
+        // 获取文本内容用于索引验证
+        QString text = "";
+        if (m_documentView->document() && pos.paragraph >= 0 && pos.paragraph < m_documentView->document()->paragraphCount()) {
+            Paragraph paragraph = m_documentView->document()->paragraph(pos.paragraph);
+            text = paragraph.text();
+        }
+        
+        statusText += QString("左字符索引:%1 字符:'%2' (坐标:%3,%4 宽:%5) | 右字符索引:%6 字符:'%7' (坐标:%8,%9 宽:%10)\n")
+            .arg(pos.position > 0 && pos.position <= text.length() ? pos.position - 1 : -1).arg(leftChar)
+            .arg(leftCharPos.x(), 0, 'f', 2).arg(leftCharPos.y(), 0, 'f', 2).arg(leftCharWidth, 0, 'f', 2)
+            .arg(pos.position >= 0 && pos.position < text.length() ? pos.position : -1).arg(rightChar)
+            .arg(rightCharPos.x(), 0, 'f', 2).arg(rightCharPos.y(), 0, 'f', 2).arg(rightCharWidth, 0, 'f', 2);
+        
+        statusText += QString("%1 | %2 | %3")
+            .arg(calculationInfo).arg(calculationInfo2).arg(calculationInfo3);
+        
+        m_cursorPositionLabel->setText(statusText);
+    }
 }
 
 /**
@@ -314,14 +416,12 @@ void TextEditorWidget::mousePressEvent(QMouseEvent *event)
  */
 void TextEditorWidget::inputMethodEvent(QInputMethodEvent *event)
 {
-    // 委托给输入控制器进行专业处理
-    // 输入控制器了解文档结构和光标位置，能正确处理输入法文本
     if (m_inputController) {
         m_inputController->handleInputMethodEvent(event);
+        if (event->isAccepted()) {
+            return; // 已处理，不再调用父类
+        }
     }
-    
-    // 调用父类的输入法事件处理
-    // 确保Qt框架的基本输入法功能正常工作
     QWidget::inputMethodEvent(event);
 }
 

@@ -88,7 +88,11 @@ void Cursor::stopBlinking()
  */
 QRectF Cursor::boundingRect() const
 {
-    return QRectF(0, 0, 2, 20);
+    // 获取字体度量
+    QFont font("Microsoft YaHei", 12);
+    QFontMetrics metrics(font);
+    int height = metrics.height();
+    return QRectF(0, 0, 1, height); // 调整光标宽度为1像素
 }
 
 /**
@@ -104,8 +108,13 @@ void Cursor::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QW
     
     if (m_visible)
     {
-        painter->setPen(QPen(Qt::black, 2));
-        painter->drawLine(1, 0, 1, 20);
+        // 获取字体度量 - 使用浮点版本
+        QFont font("Microsoft YaHei", 12);
+        QFontMetricsF metrics(font);
+        qreal height = metrics.height();
+        
+        painter->setPen(QPen(Qt::black, 1.0)); // 使用浮点宽度
+        painter->drawLine(QPointF(0, 0), QPointF(0, height)); // 使用浮点坐标绘制
     }
 }
 

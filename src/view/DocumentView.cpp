@@ -5,6 +5,8 @@
 // ============================================================================
 
 #include "view/DocumentView.h"
+#include <QGraphicsTextItem>
+#include <QTextDocument>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QFontMetrics>
@@ -28,11 +30,18 @@ DocumentView::DocumentView(QWidget *parent)
     setDragMode(NoDrag); // 禁用拖拽模式
     setRenderHint(QPainter::Antialiasing); // 启用抗锯齿渲染
     setAlignment(Qt::AlignLeft | Qt::AlignTop); // 设置文本对齐方式为左对齐和顶部对齐
+    
+    // 确保视图没有边框和边距
+    setFrameStyle(QFrame::NoFrame);                // 无边框
+    setViewportMargins(0, 0, 0, 0);               // 无内边距
+    
     // 设置一个默认场景矩形，防止显示问题
     m_scene->setSceneRect(0, 0, 800, 600);
 
-    // 设置蓝色边框，方便区分DocumentView的大小
-    setStyleSheet("border: 2px solid blue; background-color: lightgray;");
+    // 禁止自身获得焦点，键盘和输入法事件应交给父部件
+    setFocusPolicy(Qt::NoFocus);
+    // 禁用输入法（父部件会处理）
+    setAttribute(Qt::WA_InputMethodEnabled, false);
 }
 
 /**
@@ -69,8 +78,21 @@ Document *DocumentView::document() const
  */
 void DocumentView::setSelection(const Selection &selection)
 {
-    m_selection = selection;
-    updateLayout();
+    if (m_selection != selection)
+    {
+        m_selection = selection;
+        // 同步光标位置到选择起始点（通常光标就在起始位置）
+        if (m_cursor)
+        {
+            m_cursor->setPosition(m_selection.start());
+            QPointF cursorPoint = pointFromPosition(m_selection.start());
+            m_cursor->setPos(cursorPoint);
+        }
+        updateLayout(); // 可能不需要，但保留
+        emit selectionChanged(m_selection);
+        // 关键：通知输入法更新
+        updateInputMethod();
+    }
 }
 
 /**
@@ -107,6 +129,9 @@ void DocumentView::updateLayout() {
     if (!m_scene || !m_document)
         return;
 
+    // 保存当前场景矩形，避免布局过程中场景大小变化
+    QRectF oldSceneRect = m_scene->sceneRect();
+
     // 清除场景中的所有项目，除了光标（我们稍后会单独处理它）
     QList<QGraphicsItem *> items = m_scene->items();
     for (QGraphicsItem *item : items) {
@@ -116,18 +141,34 @@ void DocumentView::updateLayout() {
         }
     }
 
+    // 获取字体度量
+    QFont font("Microsoft YaHei", 12);
+    QFontMetrics metrics(font);
+    int lineHeight = metrics.height();
+
     // 简单的文档布局
     qreal y = 10; // 起始Y坐标
-    qreal lineHeight = 20; // 行高
 
     // 遍历文档中的所有段落
     for (int i = 0; i < m_document->paragraphCount(); i++) {
         Paragraph paragraph = m_document->paragraph(i);
         QString text = paragraph.text();
 
-        // 创建文本项并设置位置
+        // 创建文本项并设置位置和字体
         QGraphicsTextItem *textItem = new QGraphicsTextItem(text);
-        textItem->setPos(1, y);
+        textItem->setFont(font);
+        
+        // 1. 清除文档边距
+        textItem->document()->setDocumentMargin(0);
+        
+        // 2. 清除段落间距（使用样式表方法）
+        textItem->document()->setDefaultStyleSheet("p { margin:0; padding:0; }");
+        
+        // 3. 设置文本宽度，确保边界矩形紧凑
+        textItem->setTextWidth(textItem->document()->idealWidth());
+        
+        // 设置文本项位置
+        textItem->setPos(10, y);
         m_scene->addItem(textItem);
 
         y += lineHeight; // 移动到下一行
@@ -135,18 +176,32 @@ void DocumentView::updateLayout() {
 
     // 更新光标位置
     if (m_cursor) {
-        QPoint point = pointFromPosition(m_cursor->position());
-        m_cursor->setPos(point.x(), point.y());
+        QPointF point = pointFromPosition(m_cursor->position());
+        m_cursor->setPos(point);
         // 通知输入法系统光标位置已更新
         updateInputMethod();
     }
     
-    // 确保场景矩形至少有一个最小尺寸，防止窗口显示异常
-    QRectF sceneRect = m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10);
-    if (sceneRect.isNull() || sceneRect.isEmpty()) {
-        sceneRect = QRectF(0, 0, 800, 600); // 设置默认大小
+    // 计算新的场景矩形
+    QRectF newSceneRect = m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10);
+    if (newSceneRect.isNull() || newSceneRect.isEmpty()) {
+        newSceneRect = QRectF(0, 0, 800, 600); // 设置默认大小
     }
-    m_scene->setSceneRect(sceneRect);
+    
+    // 只有当新的场景矩形与旧的有显著差异时才更新
+    if (!oldSceneRect.isNull() && !oldSceneRect.isEmpty()) {
+        // 计算场景大小的变化
+        qreal widthDiff = qAbs(newSceneRect.width() - oldSceneRect.width());
+        qreal heightDiff = qAbs(newSceneRect.height() - oldSceneRect.height());
+        
+        // 只有当变化超过一定阈值时才更新场景矩形
+        if (widthDiff > 10 || heightDiff > 10) {
+            m_scene->setSceneRect(newSceneRect);
+        }
+    } else {
+        // 如果旧的场景矩形无效，使用新的
+        m_scene->setSceneRect(newSceneRect);
+    }
 }
 
 /**
@@ -172,31 +227,22 @@ void DocumentView::mousePressEvent(QMouseEvent *event)
     
     if (event->button() == Qt::LeftButton)
     {
-        // 确保获得焦点
-        setFocus();
-        
-        QPoint point = event->pos();
-        m_selectionStart = positionFromPoint(point);
+        // 确保获得焦点的是父部件 TextEditorWidget
+        if (parentWidget())
+            parentWidget()->setFocus();
+
+        // 原有光标定位和选择逻辑保持不变
+        QPointF scenePos = mapToScene(event->pos());
+        m_selectionStart = positionFromPoint(scenePos);
         m_selecting = true;
-        
-        // 设置初始选择
         Selection selection(m_selectionStart, m_selectionStart);
         setSelection(selection);
-        
-        // 更新光标位置并确保可见
         m_cursor->setPosition(m_selectionStart);
-        
-        // 更新光标在场景中的实际位置
-        QPoint cursorPoint = pointFromPosition(m_selectionStart);
-        m_cursor->setPos(cursorPoint.x(), cursorPoint.y());
-        
+        QPointF cursorPoint = pointFromPosition(m_selectionStart);
+        m_cursor->setPos(cursorPoint);
         m_cursor->show();
         m_cursor->stopBlinking();
-        
-        // 确保光标在视图内可见
         ensureCursorVisible();
-        
-        // 通知输入法系统光标位置已更新
         updateInputMethod();
     }
 }
@@ -240,13 +286,13 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event)
         m_selecting = false;
         
         // 确保光标在正确位置
-        QPoint point = event->pos();
-        Selection::Position cursorPos = positionFromPoint(point);
+        QPoint point = event->pos();// 更新光标位置
+        Selection::Position cursorPos = m_selection.start();
         m_cursor->setPosition(cursorPos);
         
         // 更新光标在场景中的实际位置
-        QPoint cursorPoint = pointFromPosition(cursorPos);
-        m_cursor->setPos(cursorPoint.x(), cursorPoint.y());
+        QPointF cursorPoint = pointFromPosition(cursorPos);
+        m_cursor->setPos(cursorPoint);
         
         // 开始闪烁
         m_cursor->startBlinking();
@@ -266,10 +312,8 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event)
  */
 void DocumentView::keyPressEvent(QKeyEvent *event)
 {
-    QGraphicsView::keyPressEvent(event);
-    
-    // 处理键盘事件，如方向键移动光标等
-    // 这里可以添加具体的键盘事件处理逻辑
+    // 忽略事件，让父部件处理
+    event->ignore();
 }
 
 /**
@@ -277,42 +321,43 @@ void DocumentView::keyPressEvent(QKeyEvent *event)
  * @param point 点坐标
  * @return 文档位置
  */
-Selection::Position DocumentView::positionFromPoint(const QPoint &point) const
+Selection::Position DocumentView::positionFromPoint(const QPointF &point) const
 {
-    // 简单的点到位置转换
-    // 实际实现中需要更精确的计算
-    Selection::Position pos;
-    pos.paragraph = qMax(0, static_cast<int>((point.y() - 10) / 20));
-    pos.position = qMax(0, static_cast<int>((point.x() - 10) / 8));
-    
-    // 确保位置在有效范围内
-    if (m_document)
-    {
-        if (pos.paragraph >= m_document->paragraphCount())
-        {
-            pos.paragraph = qMax(0, m_document->paragraphCount() - 1);
-            // 检查是否仍有段落数量
-            if (m_document->paragraphCount() > 0) {
-                Paragraph paragraph = m_document->paragraph(pos.paragraph);
-                pos.position = paragraph.length();
-            } else {
-                pos.paragraph = 0;
-                pos.position = 0;
-            }
-        }
-        else
-        {
-            Paragraph paragraph = m_document->paragraph(pos.paragraph);
-            pos.position = qMin(pos.position, paragraph.length());
+    if (!m_document) return {0, 0};
+
+    QFont font("Microsoft YaHei", 12);
+    QFontMetricsF metrics(font);
+    qreal lineHeight = metrics.height();
+    qreal leftMargin = 10.0;
+
+    // 计算段落索引（Y 坐标定位）
+    int paraIndex = qMax(0, static_cast<int>((point.y() - leftMargin) / lineHeight));
+    if (paraIndex >= m_document->paragraphCount())
+        paraIndex = qMax(0, m_document->paragraphCount() - 1);
+
+    QString text = m_document->paragraph(paraIndex).text();
+
+    // 计算所有间隙的 X 坐标
+    QList<qreal> gapPositions;
+    gapPositions.append(leftMargin);
+    qreal currentX = leftMargin;
+    for (int i = 0; i < text.length(); ++i) {
+        currentX += metrics.horizontalAdvance(text[i]);
+        gapPositions.append(currentX);
+    }
+
+    // 查找最近的间隙索引
+    int bestIndex = 0;
+    qreal minDist = qAbs(point.x() - gapPositions[0]);
+    for (int i = 1; i < gapPositions.size(); ++i) {
+        qreal dist = qAbs(point.x() - gapPositions[i]);
+        if (dist < minDist) {
+            minDist = dist;
+            bestIndex = i;
         }
     }
-    else
-    {
-        pos.paragraph = 0;
-        pos.position = 0;
-    }
-    
-    return pos;
+
+    return {paraIndex, bestIndex};
 }
 
 /**
@@ -320,14 +365,25 @@ Selection::Position DocumentView::positionFromPoint(const QPoint &point) const
  * @param position 文档位置
  * @return 点坐标
  */
-QPoint DocumentView::pointFromPosition(const Selection::Position &position) const
+QPointF DocumentView::pointFromPosition(const Selection::Position &position) const
 {
-    // 简单的位置到点转换
-    // 实际实现中需要更精确的计算
-    qreal x = 10 + position.position * 8;
-    qreal y = 10 + position.paragraph * 20;
-    
-    return QPoint(static_cast<int>(x), static_cast<int>(y));
+    if (!m_document || position.paragraph >= m_document->paragraphCount())
+        return QPointF(10, 10);
+
+    QFont font("Microsoft YaHei", 12);
+    QFontMetricsF metrics(font);
+    qreal lineHeight = metrics.height();
+    qreal leftMargin = 10.0;
+
+    // Y 坐标
+    qreal y = leftMargin + position.paragraph * lineHeight;
+
+    // X 坐标 = 左边界 + 前 position 个字符的宽度
+    QString text = m_document->paragraph(position.paragraph).text();
+    int actualPos = qMin(position.position, text.length());
+    qreal x = leftMargin + metrics.horizontalAdvance(text.left(actualPos));
+
+    return QPointF(x, y);
 }
 
 /**
@@ -345,11 +401,16 @@ QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const
     case Qt::ImCursorRectangle:
     {
         // 获取光标位置（场景坐标）
-        QPoint cursorPos = pointFromPosition(m_cursor->position());
+        QPointF cursorPos = pointFromPosition(m_cursor->position());
         // 转换为视图坐标
-        QPoint viewPos = mapFromScene(cursorPos);
-        // 光标矩形（宽度2像素，高度20像素）
-        return QRect(viewPos.x(), viewPos.y(), 2, 20);
+        QPoint viewPos = mapFromScene(cursorPos.toPoint());
+        
+        // 使用动态行高计算光标矩形
+        QFont font("Microsoft YaHei", 12);
+        QFontMetricsF metrics(font);
+        int lineHeight = metrics.height();
+        
+        return QRect(viewPos.x(), viewPos.y(), 2, lineHeight);
     }
     case Qt::ImFont:
     {
@@ -439,8 +500,8 @@ void DocumentView::drawComposingText(const QString &text, const Selection::Posit
     m_composingTextItem->setDefaultTextColor(composingColor);
     
     // 设置位置（在光标位置显示）
-    QPoint pos = pointFromPosition(position);
-    m_composingTextItem->setPos(pos.x(), pos.y());
+    QPointF pos = pointFromPosition(position);
+    m_composingTextItem->setPos(pos);
     
     // 添加到场景
     m_scene->addItem(m_composingTextItem);

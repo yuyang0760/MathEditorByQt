@@ -53,13 +53,44 @@ void InputController::setDocumentView(DocumentView *view)
  */
 void InputController::handleKeyPress(QKeyEvent *event)
 {
-    if (!m_documentController || !m_selectionController)
-        return;
+    if (!m_documentController || !m_selectionController) return;
     
-    Selection selection = m_selectionController->selection();
+    Selection selection = m_selectionController->selection(); // 实时获取
     
-    // 处理不同类型的按键
-    if (event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete)
+    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+        // 回车处理...
+        m_documentController->insertParagraph(selection.start().paragraph + 1);
+        
+        // 移动光标到新段落
+        Selection::Position newPos;
+        newPos.paragraph = selection.start().paragraph + 1;
+        newPos.position = 0;
+        Selection newSelection(newPos, newPos);
+        m_selectionController->setSelection(newSelection);
+        event->accept();
+    }
+    else if (!event->text().isEmpty() && event->text()[0].isPrint()) {
+        QString text = event->text();
+        if (m_selectionController->hasSelection()) {
+            m_documentController->replaceText(selection, text);
+            // 新光标位置 = 起始位置 + 文本长度
+            Selection::Position newPos = selection.start();
+            newPos.position += text.length();
+            m_selectionController->setSelection(Selection(newPos, newPos));
+        } else {
+            m_documentController->insertText(selection.start(), text);
+            Selection::Position newPos = selection.start();
+            newPos.position += text.length();
+            m_selectionController->setSelection(Selection(newPos, newPos));
+        }
+        if (m_documentView) {
+            m_documentView->updateLayout();
+            m_documentView->ensureCursorVisible();
+        }
+        event->accept();
+    }
+    // ... 其他按键
+    else if (event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete)
     {
         if (m_selectionController->hasSelection())
         {
@@ -74,48 +105,6 @@ void InputController::handleKeyPress(QKeyEvent *event)
         {
             // 删除光标前或后的一个字符
             // 这里可以添加具体的删除逻辑
-        }
-        event->accept();
-    }
-    else if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)
-    {
-        // 处理回车键，插入新段落
-        m_documentController->insertParagraph(selection.start().paragraph + 1);
-        
-        // 移动光标到新段落
-        Selection::Position newPos;
-        newPos.paragraph = selection.start().paragraph + 1;
-        newPos.position = 0;
-        Selection newSelection(newPos, newPos);
-        m_selectionController->setSelection(newSelection);
-        event->accept();
-    }
-    else if (event->key() >= Qt::Key_Space && event->key() <= Qt::Key_AsciiTilde)
-    {
-        // 处理可打印字符
-        QString text = event->text();
-        
-        if (m_selectionController->hasSelection())
-        {
-            // 替换选中的文本
-            m_documentController->replaceText(selection, text);
-            
-            // 移动光标到文本末尾
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
-            Selection newSelection(newPos, newPos);
-            m_selectionController->setSelection(newSelection);
-        }
-        else
-        {
-            // 插入文本
-            m_documentController->insertText(selection.start(), text);
-            
-            // 移动光标到文本末尾
-            Selection::Position newPos = selection.start();
-            newPos.position += text.length();
-            Selection newSelection(newPos, newPos);
-            m_selectionController->setSelection(newSelection);
         }
         event->accept();
     }
@@ -134,59 +123,40 @@ void InputController::handleKeyPress(QKeyEvent *event)
  */
 void InputController::handleInputMethodEvent(QInputMethodEvent *event)
 {
-    if (!m_documentController || !m_selectionController)
-        return;
+    if (!m_documentController || !m_selectionController) return;
     
     Selection selection = m_selectionController->selection();
     
-    // 处理输入完成的文本
-    if (!event->commitString().isEmpty())
-    {
+    if (!event->commitString().isEmpty()) {
         QString text = event->commitString();
-        
-        if (m_selectionController->hasSelection())
-        {
-            // 替换选中的文本
+        // 插入/替换逻辑
+        if (m_selectionController->hasSelection()) {
             m_documentController->replaceText(selection, text);
-            
-            // 移动光标到文本末尾
             Selection::Position newPos = selection.start();
             newPos.position += text.length();
-            Selection newSelection(newPos, newPos);
-            m_selectionController->setSelection(newSelection);
-        }
-        else
-        {
-            // 插入文本
+            m_selectionController->setSelection(Selection(newPos, newPos));
+        } else {
             m_documentController->insertText(selection.start(), text);
-            
-            // 移动光标到文本末尾
             Selection::Position newPos = selection.start();
             newPos.position += text.length();
-            Selection newSelection(newPos, newPos);
-            m_selectionController->setSelection(newSelection);
+            m_selectionController->setSelection(Selection(newPos, newPos));
         }
-        
-        // 清空组合文本
+        if (m_documentView) {
+            m_documentView->updateLayout();
+            m_documentView->ensureCursorVisible();
+        }
         m_composingText.clear();
     }
     
-    // 处理组合文本（输入过程中的临时文本）
-    if (!event->preeditString().isEmpty())
-    {
+    // 组合文本显示
+    if (!event->preeditString().isEmpty()) {
         m_composingText = event->preeditString();
-        // 显示组合文本
-        if (m_documentView && !m_composingText.isEmpty())
-        {
+        if (m_documentView) {
             m_documentView->showComposingText(m_composingText);
         }
-    }
-    else
-    {
+    } else {
         m_composingText.clear();
-        // 清除组合文本显示
-        if (m_documentView)
-        {
+        if (m_documentView) {
             m_documentView->hideComposingText();
         }
     }

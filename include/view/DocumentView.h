@@ -103,6 +103,12 @@ signals:
      * @param viewPos 视图坐标
      */
     void mousePositionChanged(const QPointF& scenePos, const QPoint& viewPos);
+    
+    /**
+     * @brief 选择变化信号
+     * @param selection 新的选择
+     */
+    void selectionChanged(const Selection &selection);
 
 protected:
     /**
@@ -136,20 +142,22 @@ protected:
      */
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
     
-private:
+public:
     /**
      * @brief 从点获取位置
      * @param point 点坐标
      * @return 文档位置
      */
-    Selection::Position positionFromPoint(const QPoint &point) const;
+    Selection::Position positionFromPoint(const QPointF &point) const;
     
     /**
      * @brief 从位置获取点
      * @param position 文档位置
      * @return 点坐标
      */
-    QPoint pointFromPosition(const Selection::Position &position) const;
+    QPointF pointFromPosition(const Selection::Position &position) const;
+
+private:
     
     /**
      * @brief 更新输入法

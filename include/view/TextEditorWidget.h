@@ -18,6 +18,8 @@
 #include <QKeyEvent>
 #include <QInputMethodEvent>
 #include <QVariant>
+#include <QStatusBar>
+#include <QLabel>
 
 class Document;
 
@@ -86,6 +88,12 @@ public:
      */
     void redo();
     
+    /**
+     * @brief 更新状态栏
+     * 更新光标位置信息显示
+     */
+    void updateStatusBar();
+    
 protected:
     /**
      * @brief 鼠标按下事件处理
@@ -150,6 +158,16 @@ private:
      * @brief 选择控制器
      */
     SelectionController *m_selectionController;
+    
+    /**
+     * @brief 状态栏
+     */
+    QStatusBar *m_statusBar;
+    
+    /**
+     * @brief 光标位置标签
+     */
+    QLabel *m_cursorPositionLabel;
 };
 
 #endif // TEXTEDITORWIDGET_H
