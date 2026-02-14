@@ -107,9 +107,14 @@ void TextEditorWidget::onDocumentChanged()
  */
 void TextEditorWidget::onSelectionChanged(const Selection &selection)
 {
-    // 将选择状态设置到文档视图中
-    // 这会让视图知道哪些文本被选中，并相应地高亮显示
-    m_documentView->setSelection(selection);
+    // 如果选择来自视图，则更新控制器
+    if (m_selectionController->selection() != selection) {
+        m_selectionController->setSelection(selection);
+    }
+    // 如果选择来自控制器，则更新视图
+    if (m_documentView->selection() != selection) {
+        m_documentView->setSelection(selection);
+    }
     
     // 确保光标当前位置可见
     // 如果光标移出了可视区域，会自动滚动到合适位置
