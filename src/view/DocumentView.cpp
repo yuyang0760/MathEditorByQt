@@ -1,3 +1,9 @@
+// ============================================================================
+// DocumentView.cpp
+// 文档视图实现文件
+// 提供文档的图形化显示和交互功能
+// ============================================================================
+
 #include "view/DocumentView.h"
 #include "view/TextRunItem.h"
 #include "view/MathObjectItem.h"
@@ -7,6 +13,13 @@
 #include <QInputMethod>
 #include <QFontMetrics>
 
+/**
+ * @brief 构造函数
+ * 
+ * 初始化文档视图，设置场景、光标和各种属性
+ * 
+ * @param parent 父部件指针
+ */
 DocumentView::DocumentView(QWidget *parent)
     : QGraphicsView(parent),
       m_scene(new QGraphicsScene(this)),
@@ -26,6 +39,11 @@ DocumentView::DocumentView(QWidget *parent)
     setAttribute(Qt::WA_InputMethodEnabled, true);  // 启用输入法
 }
 
+/**
+ * @brief 设置文档对象
+ * 
+ * @param document 要设置的文档指针
+ */
 void DocumentView::setDocument(Document *document) {
     m_document = document;
     if (m_document && m_cursor) {
@@ -35,8 +53,18 @@ void DocumentView::setDocument(Document *document) {
     rebuildScene();
 }
 
+/**
+ * @brief 获取当前文档对象
+ * 
+ * @return 当前文档指针
+ */
 Document *DocumentView::document() const { return m_document; }
 
+/**
+ * @brief 设置选择区域
+ * 
+ * @param selection 新的选择对象
+ */
 void DocumentView::setSelection(const Selection &selection) {
     if (m_selection != selection) {
         m_selection = selection;
@@ -50,9 +78,25 @@ void DocumentView::setSelection(const Selection &selection) {
     }
 }
 
+/**
+ * @brief 获取当前选择区域
+ * 
+ * @return 当前选择对象
+ */
 Selection DocumentView::selection() const { return m_selection; }
+
+/**
+ * @brief 获取光标对象
+ * 
+ * @return 光标指针
+ */
 Cursor *DocumentView::cursor() const { return m_cursor; }
 
+/**
+ * @brief 重建场景
+ * 
+ * 清除现有图形项，重新创建文档内容的图形表示
+ */
 void DocumentView::rebuildScene() {
     clearGraphicsItems();
     if (!m_document) return;
@@ -96,6 +140,11 @@ void DocumentView::rebuildScene() {
     m_scene->setSceneRect(m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10));
 }
 
+/**
+ * @brief 清除图形项
+ * 
+ * 移除并删除场景中除光标外的所有图形项
+ */
 void DocumentView::clearGraphicsItems() {
     QList<QGraphicsItem*> items = m_scene->items();
     for (auto item : items) {
@@ -106,11 +155,21 @@ void DocumentView::clearGraphicsItems() {
     }
 }
 
+/**
+ * @brief 更新布局
+ * 
+ * 重建场景并确保光标可见
+ */
 void DocumentView::updateLayout() {
     rebuildScene();
     ensureCursorVisible();
 }
 
+/**
+ * @brief 确保光标可见
+ * 
+ * 调整视图，使光标在可见区域内
+ */
 void DocumentView::ensureCursorVisible() {
     if (m_cursor) {
         QRectF rect = m_cursor->boundingRect();
@@ -119,6 +178,13 @@ void DocumentView::ensureCursorVisible() {
     }
 }
 
+/**
+ * @brief 鼠标按下事件处理
+ * 
+ * 处理鼠标点击事件，开始选择操作
+ * 
+ * @param event 鼠标事件对象
+ */
 void DocumentView::mousePressEvent(QMouseEvent *event) {
     QGraphicsView::mousePressEvent(event);
     if (event->button() == Qt::LeftButton) {
@@ -135,6 +201,13 @@ void DocumentView::mousePressEvent(QMouseEvent *event) {
     }
 }
 
+/**
+ * @brief 鼠标移动事件处理
+ * 
+ * 处理鼠标移动事件，更新选择区域
+ * 
+ * @param event 鼠标事件对象
+ */
 void DocumentView::mouseMoveEvent(QMouseEvent *event) {
     QGraphicsView::mouseMoveEvent(event);
     emit mousePositionChanged(mapToScene(event->pos()), event->pos());
@@ -145,6 +218,13 @@ void DocumentView::mouseMoveEvent(QMouseEvent *event) {
     }
 }
 
+/**
+ * @brief 鼠标释放事件处理
+ * 
+ * 处理鼠标释放事件，结束选择操作
+ * 
+ * @param event 鼠标事件对象
+ */
 void DocumentView::mouseReleaseEvent(QMouseEvent *event) {
     QGraphicsView::mouseReleaseEvent(event);
     if (event->button() == Qt::LeftButton && m_selecting) {
@@ -153,10 +233,25 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event) {
     }
 }
 
+/**
+ * @brief 键盘按下事件处理
+ * 
+ * 忽略键盘事件，由父控件处理
+ * 
+ * @param event 键盘事件对象
+ */
 void DocumentView::keyPressEvent(QKeyEvent *event) {
     event->ignore();
 }
 
+/**
+ * @brief 输入法查询处理
+ * 
+ * 处理输入法查询，返回各种输入法相关信息
+ * 
+ * @param query 查询类型
+ * @return 查询结果
+ */
 QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
     if (!m_cursor) return QGraphicsView::inputMethodQuery(query);
     
@@ -196,10 +291,26 @@ QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
     }
 }
 
+/**
+ * @brief 公共输入法查询方法
+ * 
+ * 提供外部访问输入法查询的接口
+ * 
+ * @param query 查询类型
+ * @return 查询结果
+ */
 QVariant DocumentView::inputMethodQueryPublic(Qt::InputMethodQuery query) const {
     return inputMethodQuery(query);
 }
 
+/**
+ * @brief 从点坐标获取文档位置
+ * 
+ * 将鼠标点击的屏幕坐标转换为文档中的位置
+ * 
+ * @param point 点坐标
+ * @return 文档位置
+ */
 Position DocumentView::positionFromPoint(const QPointF &point) const {
     if (!m_document) return {0, 0, 0};
 
@@ -283,6 +394,14 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
     return pos;
 }
 
+/**
+ * @brief 从文档位置获取点坐标
+ * 
+ * 将文档中的位置转换为屏幕坐标
+ * 
+ * @param pos 文档位置
+ * @return 点坐标
+ */
 QPointF DocumentView::pointFromPosition(const Position &pos) const {
     if (!m_document || pos.paragraph >= m_document->paragraphCount())
         return QPointF(10, 10);
@@ -328,6 +447,11 @@ QPointF DocumentView::pointFromPosition(const Position &pos) const {
     return QPointF(x, y);
 }
 
+/**
+ * @brief 更新输入法
+ * 
+ * 通知输入法更新查询信息
+ */
 void DocumentView::updateInputMethod() {
     QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
 }
