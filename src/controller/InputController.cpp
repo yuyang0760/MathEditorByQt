@@ -4,11 +4,22 @@
 // 处理键盘输入和输入法事件，转换为文档编辑操作
 // ============================================================================
 
+// ============================================================================
+// InputController.cpp
+// 输入控制器实现文件
+// 处理键盘输入和输入法事件，转换为文档编辑操作
+// ============================================================================
+
 #include "controller/InputController.h"
 #include "controller/DocumentController.h"
 #include "controller/SelectionController.h"
 #include "view/DocumentView.h"
 
+/**
+ * @brief 构造函数
+ * 初始化输入控制器，设置父对象和默认指针
+ * @param parent 父对象指针
+ */
 /**
  * @brief 构造函数
  * 初始化输入控制器，设置父对象和默认指针
@@ -132,6 +143,15 @@ void InputController::handleKeyPress(QKeyEvent *event) {
     }
 }
 
+/**
+ * @brief 处理输入法事件
+ * 
+ * 该方法处理输入法事件，支持中文、日文等复杂输入：
+ * 1. 提交文本：插入或替换文本
+ * 2. 组合文本：显示输入法候选文本（待实现）
+ * 
+ * @param event 输入法事件对象
+ */
 /**
  * @brief 处理输入法事件
  * 
