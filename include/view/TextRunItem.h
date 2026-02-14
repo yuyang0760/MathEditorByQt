@@ -41,6 +41,14 @@ public:
      * @return 当前文本片段
      */
     TextRun run() const;
+    
+    /**
+     * @brief 设置选中状态
+     * @param selected 是否选中
+     * @param start 选中起始位置（默认为0）
+     * @param end 选中结束位置（默认为-1，表示到文本末尾）
+     */
+    void setSelected(bool selected, int start = 0, int end = -1);
 
 private:
     TextRun m_run; ///< 内部存储的文本片段

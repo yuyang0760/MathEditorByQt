@@ -101,8 +101,10 @@ void DocumentController::replaceText(const Selection &selection, const QString &
     if (!m_document) return;
     
     // 简化实现：删除选择内容，然后插入新文本
+    // 使用规范化的起始位置，确保从右向左选择时也能正确插入
+    Position normStart = selection.normalizedStart();
     deleteText(selection);
-    insertText(selection.start(), text);
+    insertText(normStart, text);
 }
 
 /**

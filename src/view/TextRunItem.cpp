@@ -6,6 +6,8 @@
 
 #include "view/TextRunItem.h"
 #include <QTextDocument>
+#include <QTextCursor>
+#include <QTextCharFormat>
 
 /**
  * @brief 构造函数
@@ -54,3 +56,41 @@ void TextRunItem::setRun(const TextRun &run) {
  * @return 当前文本片段
  */
 TextRun TextRunItem::run() const { return m_run; }
+
+/**
+ * @brief 设置选中状态
+ * 
+ * 设置文本的选中状态和背景颜色
+ * 
+ * @param selected 是否选中
+ * @param start 选中起始位置
+ * @param end 选中结束位置
+ */
+void TextRunItem::setSelected(bool selected, int start, int end) {
+    QTextCursor cursor = textCursor();
+    
+    // 重置所有文本格式
+    cursor.select(QTextCursor::Document);
+    QTextCharFormat format;
+    format.setBackground(Qt::transparent); // 清除背景色
+    cursor.setCharFormat(format);
+    
+    if (selected) {
+        // 计算实际的结束位置
+        int actualEnd = (end == -1) ? m_run.length() : end;
+        actualEnd = qMin(actualEnd, m_run.length());
+        start = qMax(0, start);
+        
+        if (start < actualEnd) {
+            // 设置选中部分的背景颜色
+            cursor.setPosition(start);
+            cursor.setPosition(actualEnd, QTextCursor::KeepAnchor);
+            QTextCharFormat selectedFormat;
+            selectedFormat.setBackground(Qt::blue); // 蓝色背景
+            selectedFormat.setForeground(Qt::white); // 白色文本
+            cursor.setCharFormat(selectedFormat);
+        }
+    }
+    
+    setTextCursor(cursor);
+}

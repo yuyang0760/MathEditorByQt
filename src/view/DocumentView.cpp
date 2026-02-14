@@ -73,6 +73,7 @@ void DocumentView::setSelection(const Selection &selection) {
             QPointF pt = pointFromPosition(selection.start());
             m_cursor->setPos(pt);
         }
+        rebuildScene(); // 重建场景以更新选中文本的背景颜色
         emit selectionChanged(m_selection);
         updateInputMethod();
     }
@@ -116,6 +117,53 @@ void DocumentView::rebuildScene() {
                 TextRun run = item.data.value<TextRun>();
                 TextRunItem *titem = new TextRunItem(run);
                 titem->setPos(x, y);
+                
+                // 检查是否需要设置选中状态
+                if (m_selection.isValid()) {
+                    Position itemPos = {p, i, 0};
+                    Position itemEndPos = {p, i, run.length()};
+                    
+                    // 检查当前文本项是否与选择区域重叠
+                    // 四种重叠情况：
+                    // 1. 选择区域包含文本项
+                    // 2. 文本项包含选择区域
+                    // 3. 选择区域与文本项部分重叠
+                    // 4. 文本项与选择区域部分重叠
+                    Position normStart = m_selection.normalizedStart();
+                    Position normEnd = m_selection.normalizedEnd();
+                    
+                    bool shouldSelect = false;
+                    int start = 0;
+                    int end = run.length();
+                    
+                    // 检查重叠情况
+                    if (normStart.paragraph == p && normStart.item == i && normEnd.paragraph == p && normEnd.item == i) {
+                        // 选择区域完全在当前文本项内
+                        shouldSelect = true;
+                        start = normStart.offset;
+                        end = normEnd.offset;
+                    } else if (m_selection.contains(itemPos) || m_selection.contains(itemEndPos) ||
+                              (normStart <= itemPos && normEnd >= itemEndPos)) {
+                        // 选择区域与文本项有重叠
+                        shouldSelect = true;
+                        
+                        // 调整起始位置
+                        if (normStart.paragraph == p && normStart.item == i) {
+                            start = normStart.offset;
+                        }
+                        
+                        // 调整结束位置
+                        if (normEnd.paragraph == p && normEnd.item == i) {
+                            end = normEnd.offset;
+                        }
+                    }
+                    
+                    // 确保start < end
+                    if (shouldSelect && start < end) {
+                        titem->setSelected(true, start, end);
+                    }
+                }
+                
                 gitem = titem;
                 x += titem->boundingRect().width();
             } else if (item.type == Paragraph::MathObjectItem) {

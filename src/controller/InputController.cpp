@@ -94,8 +94,9 @@ void InputController::handleKeyPress(QKeyEvent *event) {
         if (m_selectionController->hasSelection()) {
             // 有选中内容：替换选中的文本
             m_documentController->replaceText(selection, text);
-            // 计算新光标位置：起始位置 + 文本长度
-            Position newPos = selection.start();
+            // 计算新光标位置：使用规范化的起始位置 + 文本长度
+            Position normStart = selection.normalizedStart(); // 获取规范化的起始位置
+            Position newPos = normStart;
             newPos.offset += text.length();
             m_selectionController->setSelection(Selection(newPos, newPos));
         } else {

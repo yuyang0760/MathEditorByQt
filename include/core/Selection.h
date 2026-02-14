@@ -29,6 +29,12 @@ inline bool operator<(const Position &a, const Position &b) {
     if (a.item != b.item) return a.item < b.item;
     return a.offset < b.offset;
 }
+inline bool operator<=(const Position &a, const Position &b) {
+    return a == b || a < b;
+}
+inline bool operator>=(const Position &a, const Position &b) {
+    return !(a < b);
+}
 
 /**
  * @brief 选择类
@@ -130,6 +136,19 @@ public:
      * @return 如果两个选择不同返回true
      */
     bool operator!=(const Selection &other) const;
+    
+    /**
+     * @brief 检查选择是否有效
+     * @return 如果选择有效返回true
+     */
+    bool isValid() const;
+    
+    /**
+     * @brief 检查位置是否在选择区域内
+     * @param pos 要检查的位置
+     * @return 如果位置在选择区域内返回true
+     */
+    bool contains(const Position &pos) const;
 
 private:
     Position m_start;  ///< 选择起始位置

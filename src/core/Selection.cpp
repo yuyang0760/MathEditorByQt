@@ -116,3 +116,30 @@ bool Selection::operator==(const Selection &other) const { return m_start == oth
  * @return 如果两个选择不同返回true
  */
 bool Selection::operator!=(const Selection &other) const { return !(*this == other); }
+
+/**
+ * @brief 检查选择是否有效
+ * 
+ * 检查选择的起始位置和结束位置是否有效（段落索引大于等于0）
+ * 
+ * @return 如果选择有效返回true
+ */
+bool Selection::isValid() const {
+    return m_start.paragraph >= 0 && m_end.paragraph >= 0;
+}
+
+/**
+ * @brief 检查位置是否在选择区域内
+ * 
+ * 检查给定位置是否在选择区域内，使用规范化的起始和结束位置进行比较
+ * 
+ * @param pos 要检查的位置
+ * @return 如果位置在选择区域内返回true
+ */
+bool Selection::contains(const Position &pos) const {
+    Position normStart = normalizedStart();
+    Position normEnd = normalizedEnd();
+    
+    // 检查位置是否在规范化的起始位置之后，且在规范化的结束位置之前
+    return pos >= normStart && pos <= normEnd;
+}
