@@ -1,26 +1,60 @@
+// ============================================================================
+// InputController.cpp
+// 输入控制器实现文件
+// 处理键盘输入和输入法事件，转换为文档编辑操作
+// ============================================================================
+
 #include "controller/InputController.h"
 #include "controller/DocumentController.h"
 #include "controller/SelectionController.h"
 #include "view/DocumentView.h"
 
+/**
+ * @brief 构造函数
+ * 初始化输入控制器，设置父对象和默认指针
+ * @param parent 父对象指针
+ */
 InputController::InputController(QObject *parent)
     : QObject(parent),
       m_documentController(nullptr),
       m_selectionController(nullptr),
       m_documentView(nullptr) {}
 
+/**
+ * @brief 设置文档控制器
+ * @param controller 文档控制器指针
+ */
 void InputController::setDocumentController(DocumentController *controller) {
     m_documentController = controller;
 }
 
+/**
+ * @brief 设置选择控制器
+ * @param controller 选择控制器指针
+ */
 void InputController::setSelectionController(SelectionController *controller) {
     m_selectionController = controller;
 }
 
+/**
+ * @brief 设置文档视图
+ * @param view 文档视图指针
+ */
 void InputController::setDocumentView(DocumentView *view) {
     m_documentView = view;
 }
 
+/**
+ * @brief 处理键盘按下事件
+ * 
+ * 该方法处理各种键盘事件，包括：
+ * 1. 回车键：插入新段落并移动光标
+ * 2. 可打印字符：插入或替换文本
+ * 3. 退格键/删除键：删除文本
+ * 4. 方向键：移动光标（待实现）
+ * 
+ * @param event 键盘事件对象
+ */
 void InputController::handleKeyPress(QKeyEvent *event) {
     if (!m_documentController || !m_selectionController) return;
     
@@ -87,6 +121,15 @@ void InputController::handleKeyPress(QKeyEvent *event) {
     }
 }
 
+/**
+ * @brief 处理输入法事件
+ * 
+ * 该方法处理输入法事件，支持中文、日文等复杂输入：
+ * 1. 提交文本：插入或替换文本
+ * 2. 组合文本：显示输入法候选文本（待实现）
+ * 
+ * @param event 输入法事件对象
+ */
 void InputController::handleInputMethodEvent(QInputMethodEvent *event) {
     if (!m_documentController || !m_selectionController) return;
     

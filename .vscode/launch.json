@@ -1,9 +1,21 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
-    // 悬停以查看现有属性的描述。
-    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
+        {
+            "name": "cl.exe ",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/build/debug/${workspaceFolderBasename}.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceRoot}",
+            "environment": [],
+            "console": "externalTerminal",
+            "preLaunchTask": "qt5",
+            "visualizerFile": "c:\\Users\\13170\\AppData\\Roaming\\Trae CN\\User\\workspaceStorage\\a5261ca980552eb8cb7bcbbefb5864a4\\tonka3000.qtvsctools\\qt.natvis.xml"
+        }
     ]
 }

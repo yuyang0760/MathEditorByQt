@@ -28,6 +28,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include/view
     ${CMAKE_SOURCE_DIR}/include/controller
     ${CMAKE_SOURCE_DIR}/include/io
+    ${CMAKE_SOURCE_DIR}/include/util
 )
 
 # 定义项目源文件列表 - 明确指定方式
@@ -70,7 +71,11 @@ set(PROJECT_SOURCES
     include/controller/SelectionController.h
     include/controller/InputController.h
     
-    # 输入输出模块
+    # 工具模块
+    src/util/PositionUtils.cpp
+    include/util/PositionUtils.h
+    
+    # IO模块
     src/io/DocumentReader.cpp
     src/io/DocumentWriter.cpp
     include/io/DocumentReader.h

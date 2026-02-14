@@ -1,16 +1,47 @@
+// ============================================================================
+// DocumentController.cpp
+// 文档控制器实现文件
+// 实现文档内容的编辑操作，包括文本插入、替换、删除等功能
+// ============================================================================
+
 #include "controller/DocumentController.h"
 #include "core/Format.h"
 #include "core/TextRun.h"
 
+/**
+ * @brief 构造函数
+ * 初始化文档控制器，设置父对象和默认文档指针
+ * @param parent 父对象指针
+ */
 DocumentController::DocumentController(QObject *parent)
     : QObject(parent), m_document(nullptr) {}
 
+/**
+ * @brief 设置文档对象
+ * @param document 要操作的文档指针
+ */
 void DocumentController::setDocument(Document *document) {
     m_document = document;
 }
 
+/**
+ * @brief 获取当前文档对象
+ * @return 当前文档指针
+ */
 Document *DocumentController::document() const { return m_document; }
 
+/**
+ * @brief 在指定位置插入文本
+ * 
+ * 该方法在文档的指定位置插入文本，支持以下情况：
+ * 1. 段落索引无效时，追加新段落
+ * 2. 段落为空或项索引超出时，新建文本项
+ * 3. 在文本项中插入文本
+ * 4. 在公式项前后插入文本
+ * 
+ * @param position 插入位置
+ * @param text 要插入的文本
+ */
 void DocumentController::insertText(const Position &position, const QString &text) {
     if (!m_document || text.isEmpty()) return;
 
@@ -58,6 +89,14 @@ void DocumentController::insertText(const Position &position, const QString &tex
     emit documentChanged();
 }
 
+/**
+ * @brief 替换选择区域的文本
+ * 
+ * 该方法通过先删除选择区域的文本，然后在起始位置插入新文本的方式实现替换功能
+ * 
+ * @param selection 选择区域
+ * @param text 替换的文本
+ */
 void DocumentController::replaceText(const Selection &selection, const QString &text) {
     if (!m_document) return;
     
@@ -66,6 +105,13 @@ void DocumentController::replaceText(const Selection &selection, const QString &
     insertText(selection.start(), text);
 }
 
+/**
+ * @brief 删除选择区域的文本
+ * 
+ * 该方法删除选择区域的文本，目前只支持同段落内的删除操作
+ * 
+ * @param selection 选择区域
+ */
 void DocumentController::deleteText(const Selection &selection) {
     if (!m_document) return;
     if (selection.isEmpty()) return;
@@ -98,6 +144,13 @@ void DocumentController::deleteText(const Selection &selection) {
     emit documentChanged();
 }
 
+/**
+ * @brief 在指定位置插入段落
+ * 
+ * 该方法在指定索引位置插入一个新的空段落
+ * 
+ * @param paragraphIndex 段落插入位置
+ */
 void DocumentController::insertParagraph(int paragraphIndex) {
     if (!m_document) return;
     
