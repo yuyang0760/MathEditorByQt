@@ -24,6 +24,9 @@ struct Position {
 inline bool operator==(const Position &a, const Position &b) {
     return a.paragraphIndex == b.paragraphIndex && a.itemIndex == b.itemIndex && a.offset == b.offset;
 }
+inline bool operator!=(const Position &a, const Position &b) {
+    return !(a == b);
+}
 inline bool operator<(const Position &a, const Position &b) {
     if (a.paragraphIndex != b.paragraphIndex) return a.paragraphIndex < b.paragraphIndex;
     if (a.itemIndex != b.itemIndex) return a.itemIndex < b.itemIndex;
@@ -31,6 +34,9 @@ inline bool operator<(const Position &a, const Position &b) {
 }
 inline bool operator<=(const Position &a, const Position &b) {
     return a == b || a < b;
+}
+inline bool operator>(const Position &a, const Position &b) {
+    return b < a;
 }
 inline bool operator>=(const Position &a, const Position &b) {
     return !(a < b);

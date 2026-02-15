@@ -8,7 +8,8 @@
 #include <QTextDocument>
 #include <QTextCursor>
 #include <QTextCharFormat>
-#include "core/StyleManager.h"  // 需要包含
+#include "core/StyleManager.h"
+#include "core/CharacterFormat.h"
 
 /**
  * @brief 构造函数
@@ -18,19 +19,31 @@
  * @param run 文本片段
  * @param parent 父图形项
  */
-TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
-    : QGraphicsTextItem(run.text(), parent), m_run(run)
+TextRunItem::TextRunItem(const TextRun &run, int paragraphIndex, int itemIndex, int offsetStart, int offsetEnd, QGraphicsItem *parent)
+    : QGraphicsTextItem(run.text(), parent), m_run(run), 
+      m_paragraphIndex(paragraphIndex), m_itemIndex(itemIndex), 
+      m_offsetStart(offsetStart), m_offsetEnd(offsetEnd)
 {
     StyleManager *styleMgr = StyleManager::instance();
-    Format eff = m_run.effectiveFormat(styleMgr);
-    setFont(eff.font());
-    setDefaultTextColor(eff.color());
+    CharacterFormat eff = m_run.effectiveFormat(styleMgr);
+    if (eff.hasFontFamily() && eff.hasFontSize()) {
+        setFont(eff.toFont());
+    }
+    if (eff.hasColor()) {
+        setDefaultTextColor(eff.color());
+    }
     
     // 关键修复：移除文档边距，使文本从 (0,0) 开始绘制
     QTextDocument *doc = document();
     if (doc) {
         doc->setDocumentMargin(0);
     }
+    
+    // 禁用 QGraphicsTextItem 的默认选择功能
+    setTextInteractionFlags(Qt::NoTextInteraction);
+    
+    // 确保初始状态下没有任何选择高亮
+    setSelected(false);
 }
 
 /**
@@ -44,9 +57,13 @@ void TextRunItem::setRun(const TextRun &run) {
     m_run = run;
     setPlainText(run.text());
     StyleManager *styleMgr = StyleManager::instance();
-    Format eff = m_run.effectiveFormat(styleMgr);
-    setFont(eff.font());
-    setDefaultTextColor(eff.color());
+    CharacterFormat eff = m_run.effectiveFormat(styleMgr);
+    if (eff.hasFontFamily() && eff.hasFontSize()) {
+        setFont(eff.toFont());
+    }
+    if (eff.hasColor()) {
+        setDefaultTextColor(eff.color());
+    }
     
     // 关键修复：移除文档边距，使文本从 (0,0) 开始绘制
     QTextDocument *doc = document();
@@ -61,6 +78,14 @@ void TextRunItem::setRun(const TextRun &run) {
  * @return 当前文本片段
  */
 TextRun TextRunItem::run() const { return m_run; }
+
+int TextRunItem::paragraphIndex() const { return m_paragraphIndex; }
+
+int TextRunItem::itemIndex() const { return m_itemIndex; }
+
+int TextRunItem::offsetStart() const { return m_offsetStart; }
+
+int TextRunItem::offsetEnd() const { return m_offsetEnd; }
 
 /**
  * @brief 设置选中状态
@@ -77,7 +102,7 @@ void TextRunItem::setSelected(bool selected, int start, int end) {
     // 重置所有文本格式
     cursor.select(QTextCursor::Document);
     QTextCharFormat format;
-    format.setBackground(Qt::transparent); // 清除背景色
+    format.setBackground(Qt::transparent);
     cursor.setCharFormat(format);
     
     if (selected) {
@@ -91,8 +116,8 @@ void TextRunItem::setSelected(bool selected, int start, int end) {
             cursor.setPosition(start);
             cursor.setPosition(actualEnd, QTextCursor::KeepAnchor);
             QTextCharFormat selectedFormat;
-            selectedFormat.setBackground(Qt::blue); // 蓝色背景
-            selectedFormat.setForeground(Qt::white); // 白色文本
+            selectedFormat.setBackground(Qt::blue);
+            selectedFormat.setForeground(Qt::white);
             cursor.setCharFormat(selectedFormat);
         }
     }

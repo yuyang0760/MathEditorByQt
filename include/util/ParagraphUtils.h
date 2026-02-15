@@ -9,7 +9,6 @@
 
 #include "core/Paragraph.h"
 #include "core/TextRun.h"
-#include "core/Format.h"
 #include <QList>
 
 /**

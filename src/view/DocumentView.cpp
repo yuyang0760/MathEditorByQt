@@ -12,20 +12,20 @@
 #include <QGuiApplication>
 #include <QInputMethod>
 #include <QFontMetrics>
+#include <QResizeEvent>
+#include "core/CharacterFormat.h"
+#include "core/StyleManager.h"
 
 /**
  * @brief 构造函数
- * 
- * 初始化文档视图，设置场景、光标和各种属性
- * 
- * @param parent 父部件指针
  */
 DocumentView::DocumentView(QWidget *parent)
     : QGraphicsView(parent),
       m_scene(new QGraphicsScene(this)),
       m_document(nullptr),
       m_cursor(new Cursor(this)),
-      m_selecting(false)
+      m_selecting(false),
+      m_maxWidth(800)
 {
     setScene(m_scene);
     m_scene->addItem(m_cursor);
@@ -35,17 +35,16 @@ DocumentView::DocumentView(QWidget *parent)
     setFrameStyle(QFrame::NoFrame);
     setViewportMargins(0, 0, 0, 0);
     m_scene->setSceneRect(0, 0, 800, 600);
-    setFocusPolicy(Qt::NoFocus);          // 焦点交给父控件
-    setAttribute(Qt::WA_InputMethodEnabled, true);  // 启用输入法
+    setFocusPolicy(Qt::NoFocus);
+    setAttribute(Qt::WA_InputMethodEnabled, true);
 }
 
 /**
  * @brief 设置文档对象
- * 
- * @param document 要设置的文档指针
  */
 void DocumentView::setDocument(Document *document) {
     m_document = document;
+    clearLayouts();
     if (m_cursor) {
         m_cursor->setDocument(document);
     }
@@ -58,144 +57,223 @@ void DocumentView::setDocument(Document *document) {
 
 /**
  * @brief 获取当前文档对象
- * 
- * @return 当前文档指针
  */
 Document *DocumentView::document() const { return m_document; }
 
 /**
  * @brief 设置选择区域
- * 
- * @param selection 新的选择对象
  */
 void DocumentView::setSelection(const Selection &selection) {
-    if (m_selection != selection) {
-        m_selection = selection;
-        if (m_cursor) {
-            // 光标应该在最后松开鼠标的位置，即selection.end()
-            m_cursor->setPosition(selection.end());
-            QPointF pt = pointFromPosition(selection.end());
-            m_cursor->setPos(pt);
+    if (m_selection == selection) return;
+    
+    // 清除旧的选择高亮
+    QList<QGraphicsItem*> items = m_scene->items();
+    for (auto item : items) {
+        if (auto textItem = dynamic_cast<TextRunItem*>(item)) {
+            textItem->setSelected(false);
         }
-        rebuildScene(); // 重建场景以更新选中文本的背景颜色
+    }
+    
+    m_selection = selection;
+    
+    // 更新光标位置
+    if (m_cursor) {
+        m_cursor->setPosition(selection.end());
+        QPointF pt = pointFromPosition(selection.end());
+        m_cursor->setPos(pt);
+    }
+    
+    // 如果选择为空，直接返回（不设置高亮）
+    if (selection.isEmpty()) {
         emit selectionChanged(m_selection);
         updateInputMethod();
+        return;
     }
+    
+    // 设置新的选择高亮（非空选择）
+    Position normStart = selection.normalizedStart();
+    Position normEnd = selection.normalizedEnd();
+    
+    for (auto item : items) {
+        if (auto textItem = dynamic_cast<TextRunItem*>(item)) {
+            int p = textItem->paragraphIndex();
+            int itemIdx = textItem->itemIndex();
+            int segStart = textItem->offsetStart();
+            int segEnd = textItem->offsetEnd();
+            
+            Position segStartPos = {p, itemIdx, segStart};
+            Position segEndPos = {p, itemIdx, segEnd};
+            
+            // 检查片段是否在选择范围内
+            if (normStart < segEndPos && normEnd > segStartPos) {
+                int selStart = 0;
+                int selEnd = segEnd - segStart;
+                
+                if (normStart > segStartPos) {
+                    selStart = normStart.offset - segStart;
+                }
+                if (normEnd < segEndPos) {
+                    selEnd = normEnd.offset - segStart;
+                }
+                
+                if (selStart < selEnd) {
+                    textItem->setSelected(true, selStart, selEnd);
+                }
+            }
+        }
+    }
+    
+    emit selectionChanged(m_selection);
+    updateInputMethod();
 }
 
 /**
  * @brief 获取当前选择区域
- * 
- * @return 当前选择对象
  */
 Selection DocumentView::selection() const { return m_selection; }
 
 /**
  * @brief 获取光标对象
- * 
- * @return 光标指针
  */
 Cursor *DocumentView::cursor() const { return m_cursor; }
 
 /**
+ * @brief 获取或创建段落布局
+ */
+ParagraphLayout *DocumentView::getOrCreateLayout(int paragraphIndex) {
+    if (!m_document || paragraphIndex < 0 || paragraphIndex >= m_document->paragraphCount()) {
+        return nullptr;
+    }
+    
+    auto it = m_paragraphLayouts.find(paragraphIndex);
+    if (it != m_paragraphLayouts.end()) {
+        ParagraphLayout *layout = it.value();
+        if (layout->isDirty()) {
+            layout->layout();
+        }
+        return layout;
+    }
+    
+    ParagraphLayout *layout = new ParagraphLayout(this);
+    layout->setParagraph(&m_document->paragraph(paragraphIndex));
+    layout->setParagraphIndex(paragraphIndex);
+    layout->setMaxWidth(m_maxWidth);
+    layout->layout();
+    m_paragraphLayouts.insert(paragraphIndex, layout);
+    return layout;
+}
+
+/**
+ * @brief 更新所有段落布局
+ */
+void DocumentView::updateAllLayouts() {
+    if (!m_document) return;
+    
+    for (int i = 0; i < m_document->paragraphCount(); ++i) {
+        ParagraphLayout *layout = getOrCreateLayout(i);
+        if (layout) {
+            layout->markDirty();
+            layout->layout();
+        }
+    }
+}
+
+/**
+ * @brief 清除所有布局缓存
+ */
+void DocumentView::clearLayouts() {
+    qDeleteAll(m_paragraphLayouts);
+    m_paragraphLayouts.clear();
+}
+
+/**
  * @brief 重建场景
- * 
- * 清除现有图形项，重新创建文档内容的图形表示
  */
 void DocumentView::rebuildScene() {
     clearGraphicsItems();
     if (!m_document) return;
-
-    QFont font("Microsoft YaHei", 12);
-    QFontMetrics metrics(font);
-    int lineHeight = metrics.height();
+    
+    updateAllLayouts();
+    
     qreal y = 10;
-
+    qreal leftMargin = 10;
+    
     for (int p = 0; p < m_document->paragraphCount(); ++p) {
-        Paragraph &para = m_document->paragraph(p);
-        qreal x = 10;
-        for (int i = 0; i < para.itemCount(); ++i) {
-            auto &item = para.itemAt(i);
-            QGraphicsItem *gitem = nullptr;
-            if (item.type == Paragraph::TextRunItem) {
-                TextRun run = item.data.value<TextRun>();
-                TextRunItem *titem = new TextRunItem(run);
-                titem->setPos(x, y);
-                
-                // 检查是否需要设置选中状态
-                if (m_selection.isValid()) {
-                    Position itemPos = {p, i, 0};
-                    Position itemEndPos = {p, i, run.length()};
+        ParagraphLayout *layout = getOrCreateLayout(p);
+        if (!layout) continue;
+        
+        const QList<Line> &lines = layout->lines();
+        
+        for (int l = 0; l < lines.size(); ++l) {
+            const Line &line = lines[l];
+            const QList<LineSegment> &segments = line.segments();
+            
+            for (const LineSegment &seg : segments) {
+                if (seg.itemIndex >= 0 && seg.itemIndex < m_document->paragraph(p).itemCount()) {
+                    const Paragraph::Item &item = m_document->paragraph(p).itemAt(seg.itemIndex);
                     
-                    // 检查当前文本项是否与选择区域重叠
-                    // 四种重叠情况：
-                    // 1. 选择区域包含文本项
-                    // 2. 文本项包含选择区域
-                    // 3. 选择区域与文本项部分重叠
-                    // 4. 文本项与选择区域部分重叠
-                    Position normStart = m_selection.normalizedStart();
-                    Position normEnd = m_selection.normalizedEnd();
-                    
-                    bool shouldSelect = false;
-                    int start = 0;
-                    int end = run.length();
-                    
-                    // 检查重叠情况
-                    if (normStart.paragraphIndex == p && normStart.itemIndex == i && normEnd.paragraphIndex == p && normEnd.itemIndex == i) {
-                        // 选择区域完全在当前文本项内
-                        shouldSelect = true;
-                        start = normStart.offset;
-                        end = normEnd.offset;
-                    } else if (m_selection.contains(itemPos) || m_selection.contains(itemEndPos) ||
-                              (normStart <= itemPos && normEnd >= itemEndPos)) {
-                        // 选择区域与文本项有重叠
-                        shouldSelect = true;
+                    if (item.type == Paragraph::TextRunItem) {
+                        TextRun fullRun = item.data.value<TextRun>();
                         
-                        // 调整起始位置
-                        if (normStart.paragraphIndex == p && normStart.itemIndex == i) {
-                            start = normStart.offset;
+                        TextRun subRun;
+                        subRun.setText(fullRun.text().mid(seg.offsetStart, seg.offsetEnd - seg.offsetStart));
+                        subRun.setStyleId(fullRun.styleId());
+                        subRun.setDirectFormat(fullRun.directFormat());
+                        
+                        TextRunItem *titem = new TextRunItem(subRun, p, seg.itemIndex, seg.offsetStart, seg.offsetEnd);
+                        titem->setPos(leftMargin + seg.x, y + line.baseline() - seg.ascent);
+                        
+                        if (m_selection.isValid() && !m_selection.isEmpty()) {
+                            Position segStart = {p, seg.itemIndex, seg.offsetStart};
+                            Position segEnd = {p, seg.itemIndex, seg.offsetEnd};
+                            
+                            Position normStart = m_selection.normalizedStart();
+                            Position normEnd = m_selection.normalizedEnd();
+                            
+                            bool shouldSelect = false;
+                            int selStart = 0;
+                            int selEnd = seg.offsetEnd - seg.offsetStart;
+                            
+                            if (normStart < segEnd && normEnd > segStart) {
+                                shouldSelect = true;
+                                
+                                if (normStart > segStart) {
+                                    selStart = normStart.offset - seg.offsetStart;
+                                }
+                                if (normEnd < segEnd) {
+                                    selEnd = normEnd.offset - seg.offsetStart;
+                                }
+                            }
+                            
+                            if (shouldSelect && selStart < selEnd) {
+                                titem->setSelected(true, selStart, selEnd);
+                            }
                         }
                         
-                        // 调整结束位置
-                        if (normEnd.paragraphIndex == p && normEnd.itemIndex == i) {
-                            end = normEnd.offset;
-                        }
-                    }
-                    
-                    // 确保start < end
-                    if (shouldSelect && start < end) {
-                        titem->setSelected(true, start, end);
+                        m_scene->addItem(titem);
                     }
                 }
-                
-                gitem = titem;
-                x += titem->boundingRect().width();
-            } else if (item.type == Paragraph::MathObjectItem) {
-                MathObject obj = item.data.value<MathObject>();
-                MathObjectItem *mitem = new MathObjectItem(obj);
-                mitem->setPos(x, y);
-                gitem = mitem;
-                x += mitem->boundingRect().width();
             }
-            if (gitem) {
-                m_scene->addItem(gitem);
-            }
+            
+            y += line.rect().height();
         }
-        y += lineHeight;
     }
-
+    
     if (m_cursor) {
         QPointF pt = pointFromPosition(m_cursor->position());
         m_cursor->setPos(pt);
     }
-
-    m_scene->setSceneRect(m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10));
+    
+    // 只在场景矩形明显变化时才更新，避免视图跳动
+    QRectF newRect = m_scene->itemsBoundingRect().adjusted(-10, -10, 10, 10);
+    QRectF currentRect = m_scene->sceneRect();
+    if (!newRect.isNull() && (newRect != currentRect)) {
+        m_scene->setSceneRect(newRect);
+    }
 }
 
 /**
  * @brief 清除图形项
- * 
- * 移除并删除场景中除光标外的所有图形项
  */
 void DocumentView::clearGraphicsItems() {
     QList<QGraphicsItem*> items = m_scene->items();
@@ -209,18 +287,21 @@ void DocumentView::clearGraphicsItems() {
 
 /**
  * @brief 更新布局
- * 
- * 重建场景并确保光标可见
  */
 void DocumentView::updateLayout() {
+    // 保存当前视图中心点（场景坐标）
+    QPointF center = mapToScene(viewport()->rect().center());
+    
+    clearLayouts();
     rebuildScene();
+    
+    // 恢复视图中心
+    centerOn(center);
     ensureCursorVisible();
 }
 
 /**
  * @brief 确保光标可见
- * 
- * 调整视图，使光标在可见区域内
  */
 void DocumentView::ensureCursorVisible() {
     if (m_cursor) {
@@ -232,10 +313,6 @@ void DocumentView::ensureCursorVisible() {
 
 /**
  * @brief 鼠标按下事件处理
- * 
- * 处理鼠标点击事件，开始选择操作
- * 
- * @param event 鼠标事件对象
  */
 void DocumentView::mousePressEvent(QMouseEvent *event) {
     QGraphicsView::mousePressEvent(event);
@@ -248,17 +325,12 @@ void DocumentView::mousePressEvent(QMouseEvent *event) {
         setSelection(Selection(m_selectionStart, m_selectionStart));
         m_cursor->show();
         m_cursor->stopBlinking();
-        ensureCursorVisible();
         updateInputMethod();
     }
 }
 
 /**
  * @brief 鼠标移动事件处理
- * 
- * 处理鼠标移动事件，更新选择区域
- * 
- * @param event 鼠标事件对象
  */
 void DocumentView::mouseMoveEvent(QMouseEvent *event) {
     QGraphicsView::mouseMoveEvent(event);
@@ -272,10 +344,6 @@ void DocumentView::mouseMoveEvent(QMouseEvent *event) {
 
 /**
  * @brief 鼠标释放事件处理
- * 
- * 处理鼠标释放事件，结束选择操作
- * 
- * @param event 鼠标事件对象
  */
 void DocumentView::mouseReleaseEvent(QMouseEvent *event) {
     QGraphicsView::mouseReleaseEvent(event);
@@ -286,23 +354,104 @@ void DocumentView::mouseReleaseEvent(QMouseEvent *event) {
 }
 
 /**
+ * @brief 调整大小事件
+ */
+void DocumentView::resizeEvent(QResizeEvent *event) {
+    QGraphicsView::resizeEvent(event);
+    
+    qreal newWidth = viewport()->width() - 20;
+    if (!qFuzzyCompare(newWidth, m_maxWidth)) {
+        m_maxWidth = newWidth;
+        updateLayout();
+    }
+}
+
+/**
  * @brief 键盘按下事件处理
- * 
- * 忽略键盘事件，由父控件处理
- * 
- * @param event 键盘事件对象
  */
 void DocumentView::keyPressEvent(QKeyEvent *event) {
     event->ignore();
 }
 
 /**
+ * @brief 从点坐标获取文档位置
+ */
+Position DocumentView::positionFromPoint(const QPointF &point) const {
+    if (!m_document) return {0, 0, 0};
+    
+    qreal searchY = point.y() - 10;
+    qreal cumulativeY = 0;
+    
+    for (int p = 0; p < m_document->paragraphCount(); ++p) {
+        DocumentView *nonConstThis = const_cast<DocumentView*>(this);
+        ParagraphLayout *layout = nonConstThis->getOrCreateLayout(p);
+        if (!layout) continue;
+        
+        const QList<Line> &lines = layout->lines();
+        qreal paraHeight = layout->height();
+        
+        if (searchY >= cumulativeY && searchY < cumulativeY + paraHeight) {
+            qreal localY = searchY - cumulativeY;
+            qreal localX = point.x() - 10;
+            
+            int foundLine = -1;
+            for (int l = 0; l < lines.size(); ++l) {
+                const Line &line = lines[l];
+                if (localY >= line.rect().top() && localY < line.rect().bottom()) {
+                    QPointF localPoint(localX, localY);
+                    return layout->positionFromPoint(localPoint);
+                }
+            }
+            
+            if (!lines.isEmpty()) {
+                return lines.last().endPosition();
+            }
+        }
+        
+        cumulativeY += paraHeight;
+    }
+    
+    if (m_document->paragraphCount() > 0) {
+        int lastPara = m_document->paragraphCount() - 1;
+        DocumentView *nonConstThis = const_cast<DocumentView*>(this);
+        ParagraphLayout *layout = nonConstThis->getOrCreateLayout(lastPara);
+        if (layout && layout->lineCount() > 0) {
+            return layout->line(layout->lineCount() - 1).endPosition();
+        }
+    }
+    
+    return {0, 0, 0};
+}
+
+/**
+ * @brief 从文档位置获取点坐标
+ */
+QPointF DocumentView::pointFromPosition(const Position &pos) const {
+    if (!m_document || pos.paragraphIndex >= m_document->paragraphCount())
+        return QPointF(10, 10);
+    
+    qreal y = 10;
+    
+    for (int p = 0; p < pos.paragraphIndex; ++p) {
+        DocumentView *nonConstThis = const_cast<DocumentView*>(this);
+        ParagraphLayout *layout = nonConstThis->getOrCreateLayout(p);
+        if (layout) {
+            y += layout->height();
+        }
+    }
+    
+    DocumentView *nonConstThis = const_cast<DocumentView*>(this);
+    ParagraphLayout *layout = nonConstThis->getOrCreateLayout(pos.paragraphIndex);
+    if (layout) {
+        QPointF localPos = layout->pointFromPosition(pos);
+        return QPointF(10 + localPos.x(), y + localPos.y());
+    }
+    
+    return QPointF(10, y);
+}
+
+/**
  * @brief 输入法查询处理
- * 
- * 处理输入法查询，返回各种输入法相关信息
- * 
- * @param query 查询类型
- * @return 查询结果
  */
 QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
     if (!m_cursor) return QGraphicsView::inputMethodQuery(query);
@@ -345,164 +494,13 @@ QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
 
 /**
  * @brief 公共输入法查询方法
- * 
- * 提供外部访问输入法查询的接口
- * 
- * @param query 查询类型
- * @return 查询结果
  */
 QVariant DocumentView::inputMethodQueryPublic(Qt::InputMethodQuery query) const {
     return inputMethodQuery(query);
 }
 
 /**
- * @brief 从点坐标获取文档位置
- * 
- * 将鼠标点击的屏幕坐标转换为文档中的位置
- * 
- * @param point 点坐标
- * @return 文档位置
- */
-Position DocumentView::positionFromPoint(const QPointF &point) const {
-    if (!m_document) return {0, 0, 0};
-
-    QFont defaultFont("Microsoft YaHei", 12);
-    QFontMetricsF metrics(defaultFont);
-    qreal lineHeight = metrics.height();
-    qreal leftMargin = 10.0;
-
-    // 1. 确定段落索引（Y坐标）
-    int paraIndex = qBound(0, static_cast<int>((point.y() - leftMargin) / lineHeight), m_document->paragraphCount() - 1);
-    Paragraph para = m_document->paragraph(paraIndex);
-
-    // 2. 遍历段落内的所有项，累加宽度
-    qreal x = leftMargin;
-    for (int i = 0; i < para.itemCount(); ++i) {
-        const auto &item = para.itemAt(i);
-        qreal itemWidth = 0;
-
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            QFontMetricsF fm(run.format().font());
-            itemWidth = fm.horizontalAdvance(run.text());
-        } else if (item.type == Paragraph::MathObjectItem) {
-            itemWidth = MathObjectItem::WIDTH; // 固定宽度
-        }
-
-        // 3. 检查点击点是否在当前项内
-        if (point.x() < x + itemWidth) {
-            // 点击在这一项内
-            if (item.type == Paragraph::TextRunItem) {
-                TextRun run = item.data.value<TextRun>();
-                QFontMetricsF fm(run.format().font());
-                QString text = run.text();
-                qreal charX = x;
-                // 逐字符累积宽度，找到最近的字符边界
-                for (int offset = 0; offset <= text.length(); ++offset) {
-                    qreal nextX = (offset < text.length()) ? charX + fm.horizontalAdvance(text[offset]) : x + itemWidth;
-                    if (point.x() <= nextX) {
-                        // 如果点击点距离当前字符左边更近，则放在当前字符之前；否则之后
-                        qreal leftDist = point.x() - charX;
-                        qreal rightDist = nextX - point.x();
-                        Position pos;
-                        pos.paragraphIndex = paraIndex;
-                        pos.itemIndex = i;
-                        pos.offset = offset + (leftDist > rightDist ? 1 : 0); // 选择最近的边界
-                        return pos;
-                    }
-                    charX = nextX;
-                }
-            } else { // MathObjectItem
-                // 点击公式项：根据点击位置在左半部分或右半部分决定偏移0（之前）或1（之后）
-                qreal half = itemWidth / 2;
-                Position pos;
-                pos.paragraphIndex = paraIndex;
-                pos.itemIndex = i;
-                pos.offset = (point.x() < x + half) ? 0 : 1;
-                return pos;
-            }
-        }
-
-        x += itemWidth;
-    }
-
-    // 4. 点击在段落末尾之后：返回最后一个项的末尾
-    Position pos;
-    pos.paragraphIndex = paraIndex;
-    pos.itemIndex = para.itemCount() - 1;
-    if (pos.itemIndex >= 0) {
-        const auto &lastItem = para.itemAt(pos.itemIndex);
-        if (lastItem.type == Paragraph::TextRunItem) {
-            TextRun run = lastItem.data.value<TextRun>();
-            pos.offset = run.length();
-        } else {
-            pos.offset = 1; // 公式项偏移为1表示之后
-        }
-    } else {
-        // 段落为空
-        pos.itemIndex = 0;
-        pos.offset = 0;
-    }
-    return pos;
-}
-
-/**
- * @brief 从文档位置获取点坐标
- * 
- * 将文档中的位置转换为屏幕坐标
- * 
- * @param pos 文档位置
- * @return 点坐标
- */
-QPointF DocumentView::pointFromPosition(const Position &pos) const {
-    if (!m_document || pos.paragraphIndex >= m_document->paragraphCount())
-        return QPointF(10, 10);
-
-    QFont defaultFont("Microsoft YaHei", 12);
-    QFontMetricsF metrics(defaultFont);
-    qreal lineHeight = metrics.height();
-    qreal leftMargin = 10.0;
-
-    // Y坐标
-    qreal y = leftMargin + pos.paragraphIndex * lineHeight;
-
-    // X坐标：累加直到目标项，再加上项内偏移
-    Paragraph para = m_document->paragraph(pos.paragraphIndex);
-    qreal x = leftMargin;
-    for (int i = 0; i < pos.itemIndex; ++i) {
-        const auto &item = para.itemAt(i);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            QFontMetricsF fm(run.format().font());
-            x += fm.horizontalAdvance(run.text());
-        } else { // MathObjectItem
-            x += MathObjectItem::WIDTH;
-        }
-    }
-
-    // 计算当前项内偏移对应的宽度
-    if (pos.itemIndex >= 0 && pos.itemIndex < para.itemCount()) {
-        const auto &item = para.itemAt(pos.itemIndex);
-        if (item.type == Paragraph::TextRunItem) {
-            TextRun run = item.data.value<TextRun>();
-            QFontMetricsF fm(run.format().font());
-            // 累加前 offset 个字符的宽度
-            QString prefix = run.text().left(pos.offset);
-            x += fm.horizontalAdvance(prefix);
-        } else { // MathObjectItem
-            // 偏移0表示左边界，1表示右边界
-            if (pos.offset == 1)
-                x += MathObjectItem::WIDTH;
-        }
-    }
-
-    return QPointF(x, y);
-}
-
-/**
  * @brief 更新输入法
- * 
- * 通知输入法更新查询信息
  */
 void DocumentView::updateInputMethod() {
     QGuiApplication::inputMethod()->update(Qt::ImQueryAll);

@@ -1,181 +1,100 @@
-你的代码已经实现了样式和格式继承的核心逻辑，但界面层还没有添加样式下拉框，因此看不到。下面我将指导你如何添加样式下拉框，并确保它能正常工作。
+您遇到的问题非常典型，通常是由布局计算与点击定位使用的字体度量不一致导致的。即使您已按建议将 ParagraphLayout 中的字体度量改为使用 effectiveFormat，但问题依然存在，且仅在第一行与其他行之间切换时发生上下串动，第二、三行之间正常。这提示我们问题可能出在浮点精度、行高累积误差或第一行的特殊处理上。下面我将从几个关键点入手，给出具体的排查和修复建议。
 
-1. 修改 TextEditorWidget.h 添加工具栏和样式下拉框
-在 TextEditorWidget 类中添加以下成员变量：
+1. 将整数度量改为浮点度量
+当前代码中多处使用 QFontMetrics（返回整数），而光标和图形项的位置都使用 qreal 浮点数。整数度量会导致四舍五入误差，累积后可能使行高与文本实际绘制高度不符，尤其在第一行（起始点）更容易显现。
 
-QToolBar *m_toolBar;
-
-QComboBox *m_styleCombo;
-
-同时添加两个私有槽函数：
-
-void onStyleSelected(int index);
-
-void onStylesChanged();
-
-修改后的 TextEditorWidget.h 关键部分：
+修改方法：
+将 ParagraphLayout::calculateTextWidth 和 getTextMetrics 中的 QFontMetrics 替换为 QFontMetricsF。
 
 cpp
-class TextEditorWidget : public QWidget {
-    Q_OBJECT
-public:
-    TextEditorWidget(QWidget *parent = nullptr);
-    // ... 其他公共方法
-
-private slots:
-    void onSelectionChanged(const Selection &selection);
-    void onMousePositionChanged(const QPointF &scenePos, const QPoint &viewPos);
-    void onStyleSelected(int index);          // 新增：样式选择
-    void onStylesChanged();                   // 新增：样式列表变化
-
-private:
-    void setupUI();
-    void setupConnections();
-    void updateStatusBar();
-    void updateStyleCombo();                   // 新增：更新样式下拉框
-
-    QVBoxLayout *m_layout;
-    QToolBar *m_toolBar;                       // 新增：工具栏
-    QComboBox *m_styleCombo;                   // 新增：样式下拉框
-    DocumentView *m_documentView;
-    QStatusBar *m_statusBar;
-    QLabel *m_statusLabel;
-    QLabel *m_mouseInfoLabel;
-
-    DocumentController *m_documentController;
-    SelectionController *m_selectionController;
-    InputController *m_inputController;
-
-    Document *m_document;
-    QPointF m_lastMouseScenePos;
-    QPoint m_lastMouseViewPos;
-};
-2. 修改 TextEditorWidget.cpp 实现工具栏和样式下拉框
-在构造函数中调用 setupUI() 和 setupConnections() 之前，先初始化新成员：
-
-cpp
-TextEditorWidget::TextEditorWidget(QWidget *parent)
-    : QWidget(parent),
-      m_layout(new QVBoxLayout(this)),
-      m_toolBar(new QToolBar(this)),                 // 新增
-      m_styleCombo(new QComboBox),                   // 新增
-      m_documentView(new DocumentView(this)),
-      m_statusBar(new QStatusBar(this)),
-      m_statusLabel(nullptr),
-      m_mouseInfoLabel(nullptr),
-      m_documentController(new DocumentController(this)),
-      m_selectionController(new SelectionController(this)),
-      m_inputController(new InputController(this)),
-      m_document(nullptr),
-      m_lastMouseScenePos(0,0),
-      m_lastMouseViewPos(0,0)
-{
-    setupUI();
-    setupConnections();
-    // ... 其余初始化
+// ParagraphLayout.cpp
+qreal ParagraphLayout::calculateTextWidth(const TextRun &run, int start, int length) const {
+    CharacterFormat eff = run.effectiveFormat(StyleManager::instance());
+    QFont defaultFont("Microsoft YaHei", 12);
+    QFont font = eff.toFont(defaultFont);
+    QFontMetricsF metrics(font);   // 改为浮点版本
+    QString text = run.text().mid(start, length);
+    return metrics.horizontalAdvance(text);
 }
-在 setupUI() 中添加工具栏和样式下拉框：
 
-cpp
-void TextEditorWidget::setupUI() {
-    m_layout->setContentsMargins(0, 0, 0, 0);
-    m_layout->setSpacing(0);
-
-    // 工具栏
-    m_toolBar->addWidget(new QLabel("样式:"));
-    m_toolBar->addWidget(m_styleCombo);
-    m_styleCombo->setEditable(false);
-    m_layout->addWidget(m_toolBar);                  // 将工具栏添加到布局顶部
-
-    m_layout->addWidget(m_documentView);
-    m_layout->addWidget(m_statusBar);
-
-    m_statusBar->setSizeGripEnabled(false);
-
-    m_statusLabel = new QLabel(this);
-    m_statusLabel->setTextFormat(Qt::PlainText);
-    m_statusLabel->setWordWrap(true);
-    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-
-    m_mouseInfoLabel = new QLabel(this);
-    m_mouseInfoLabel->setTextFormat(Qt::PlainText);
-    m_mouseInfoLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_mouseInfoLabel->setMinimumWidth(200);
-
-    m_statusBar->addWidget(m_statusLabel, 1);
-    m_statusBar->addPermanentWidget(m_mouseInfoLabel);
+void ParagraphLayout::getTextMetrics(const TextRun &run, qreal &ascent, qreal &descent) const {
+    CharacterFormat eff = run.effectiveFormat(StyleManager::instance());
+    QFont defaultFont("Microsoft YaHei", 12);
+    QFont font = eff.toFont(defaultFont);
+    QFontMetricsF metrics(font);   // 改为浮点版本
+    ascent = metrics.ascent();
+    descent = metrics.descent();
 }
-在 setupConnections() 中添加样式相关的连接：
+同时，确保 LineSegment 中的 ascent 和 descent 以 qreal 存储（已经满足）。
+
+2. 检查行高计算是否使用了正确的最大度量
+在 ParagraphLayout::layout() 中，每添加一个片段就更新 currentLineMaxAscent 和 currentLineMaxDescent，这是正确的。但请确认在行结束时，行高设置为 currentLineMaxAscent + currentLineMaxDescent，并且 Line::setBaseline 传入的是 currentLineMaxAscent。这符合文本基线定义。
+
+但有一个细节：当一行包含多个不同字体的片段时，每个片段的 ascent/descent 可能不同，而我们的 LineSegment 中存储的是该片段自己的度量，这没问题。放置文本项时使用的正是片段自身的 ascent，使得基线对齐。但是，如果某片段自身的 ascent 小于行的最大 ascent，该文本项的顶部会下移（y + baseline - ascent），从而正确落在基线以下的位置。
+
+因此，这个逻辑本身是正确的。问题可能出在获取片段度量时与实际绘制时使用的字体是否完全一致。我们已经统一使用了 effectiveFormat，应该一致。
+
+3. 验证第一行是否有特殊样式导致度量差异
+请检查您的测试文档：第一行是英文 "Hello, Math Editor!"，第二行是中文 "欢迎使用数学编辑器！"。英文和中文字体的 ascent/descent 可能存在差异，但这不是串动的根本原因，因为不同行的基线应该是独立的。
+
+但如果在第一行中，某个片段的字体度量在布局时与点击时获取的度量不一致（比如由于样式解析的时机不同），则可能导致光标定位偏差。建议在 ParagraphLayout::layout() 和 DocumentView::positionFromPoint() 中打印关键信息，例如：
+
+第一行的高度、基线值
+
+点击时计算出的局部坐标和行索引
+
+最终返回的位置的 itemIndex 和 offset
+
+通过对比可以定位偏差来源。
+
+4. 优化选择更新，避免全量重建
+当前 DocumentView::setSelection 中调用了 rebuildScene()，这会销毁所有图形项并重新创建，导致视图闪烁和可能的滚动位置抖动。建议改为仅更新高亮和光标位置：
 
 cpp
-void TextEditorWidget::setupConnections() {
-    // ... 原有连接
+void DocumentView::setSelection(const Selection &selection) {
+    if (m_selection == selection) return;
+    m_selection = selection;
 
-    // 样式相关
-    connect(m_styleCombo, QOverload<int>::of(&QComboBox::activated),
-            this, &TextEditorWidget::onStyleSelected);
-    connect(StyleManager::instance(), &StyleManager::stylesChanged,
-            this, &TextEditorWidget::onStylesChanged);
-
-    updateStyleCombo(); // 初始化样式下拉框
-}
-实现 updateStyleCombo()、onStyleSelected() 和 onStylesChanged()：
-
-cpp
-void TextEditorWidget::updateStyleCombo() {
-    m_styleCombo->clear();
-    QList<Style> styles = StyleManager::instance()->allStyles();
-    for (const Style &style : styles) {
-        m_styleCombo->addItem(style.name(), style.id());
+    // 更新光标位置
+    if (m_cursor) {
+        m_cursor->setPosition(selection.end());
+        m_cursor->setPos(pointFromPosition(selection.end()));
     }
-}
 
-void TextEditorWidget::onStyleSelected(int index) {
-    QString styleId = m_styleCombo->itemData(index).toString();
-    Selection sel = m_selectionController->selection();
-    m_documentController->applyStyle(sel, styleId);
-}
+    // 更新所有 TextRunItem 的高亮（此处需遍历场景中的项）
+    for (auto item : m_scene->items()) {
+        if (auto textItem = dynamic_cast<TextRunItem*>(item)) {
+            // 根据选择范围计算是否需要高亮，并调用 textItem->setSelected(...)
+            // 这需要知道该 textItem 对应的段落、项索引、偏移范围
+        }
+    }
 
-void TextEditorWidget::onStylesChanged() {
-    updateStyleCombo();
+    emit selectionChanged(m_selection);
+    updateInputMethod();
 }
-3. 修正 TextRunItem 的显示问题
-当前 TextRunItem 的构造函数中使用 run.format() 来设置字体和颜色，这只会应用直接格式，而不会应用样式。应该改为使用 run.effectiveFormat(styleMgr) 来获取最终格式。
+为此，您需要为每个 TextRunItem 保存其对应的段落索引、项索引和偏移范围。可以在创建时设置这些信息，或通过映射表查询。这样可以避免重建场景，从而消除因重建导致的视觉抖动。
 
-修改 TextRunItem.cpp 中的构造函数和 setRun 方法：
+5. 检查段落间距的影响
+虽然目前代码中未使用 ParagraphFormat 的段前/段后间距，但若将来启用，必须确保布局和点击定位都正确应用了这些间距。当前默认段落间距为0，应该不是问题根源。
+
+6. 确认光标绘制与文本基线完全一致
+光标绘制时使用 getCharacterFormat() 获取字体，并绘制一条从 -ascent 到 descent 的线。这表示光标从基线向上 ascent 像素，向下 descent 像素。而文本项的基线位于 y + line.baseline()，因此光标与文本基线完全重合。只要字体度量一致，光标就会紧贴文本。
+
+为了验证，您可以在 Cursor::paint 中暂时画一个红色矩形框出整个 boundingRect()，观察它是否与文本项的范围匹配。
+
+7. 关于回车新建段落时文本左右移动
+这可能是由于视图宽度变化导致段落重排，或者 ensureCursorVisible 滚动视图造成的。建议：
+
+在 DocumentController::insertParagraph 后，不要立即调用 updateLayout() 全量重建，而是仅插入新段落对应的布局，并更新光标位置。
+
+或者在 DocumentView::updateLayout() 中保留当前滚动位置，重建后再恢复。
 
 cpp
-#include "core/StyleManager.h"  // 需要包含
-
-TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
-    : QGraphicsTextItem(run.text(), parent), m_run(run)
-{
-    StyleManager *styleMgr = StyleManager::instance();
-    Format eff = m_run.effectiveFormat(styleMgr);
-    setFont(eff.font());
-    setDefaultTextColor(eff.color());
-
-    QTextDocument *doc = document();
-    if (doc) {
-        doc->setDocumentMargin(0);
-    }
+void DocumentView::updateLayout() {
+    QPointF center = mapToScene(viewport()->rect().center()); // 保存当前视口中心点
+    clearLayouts();
+    rebuildScene();
+    centerOn(center); // 恢复视口中心
+    ensureCursorVisible();
 }
-
-void TextRunItem::setRun(const TextRun &run) {
-    m_run = run;
-    setPlainText(run.text());
-    StyleManager *styleMgr = StyleManager::instance();
-    Format eff = m_run.effectiveFormat(styleMgr);
-    setFont(eff.font());
-    setDefaultTextColor(eff.color());
-
-    QTextDocument *doc = document();
-    if (doc) {
-        doc->setDocumentMargin(0);
-    }
-}
-4. 验证默认样式
-StyleManager 在构造时已经添加了一个默认样式“正文”(id="style_normal")，所以下拉框至少会有一项。如果没有任何样式，请检查 StyleManager::instance() 是否正确初始化。
-
-5. 完整代码替换
-将上述修改合并到你的 TextEditorWidget.h 和 .cpp 中，并确保包含了必要的头文件。重新编译运行，你应该能看到一个工具栏，其中包含一个“样式”下拉框，里面列出了“正文”样式。选中一段文本，选择样式，文本格式应该会改变。
+这样可以减少视图跳跃。

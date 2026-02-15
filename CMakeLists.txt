@@ -38,7 +38,8 @@ set(PROJECT_SOURCES
     main.cpp
     
     # 核心模块
-    src/core/Format.cpp
+    src/core/CharacterFormat.cpp
+    src/core/ParagraphFormat.cpp
     src/core/TextRun.cpp
     src/core/MathObject.cpp
     src/core/Paragraph.cpp
@@ -46,7 +47,9 @@ set(PROJECT_SOURCES
     src/core/Selection.cpp
     src/core/Style.cpp
     src/core/StyleManager.cpp
-    include/core/Format.h
+    include/core/PropertyState.h
+    include/core/CharacterFormat.h
+    include/core/ParagraphFormat.h
     include/core/TextRun.h
     include/core/MathObject.h
     include/core/Paragraph.h
@@ -61,11 +64,15 @@ set(PROJECT_SOURCES
     src/view/MathObjectItem.cpp
     src/view/DocumentView.cpp
     src/view/TextEditorWidget.cpp
+    src/view/Line.cpp
+    src/view/ParagraphLayout.cpp
     include/view/Cursor.h
     include/view/TextRunItem.h
     include/view/MathObjectItem.h
     include/view/DocumentView.h
     include/view/TextEditorWidget.h
+    include/view/Line.h
+    include/view/ParagraphLayout.h
     
     # 控制器模块
     src/controller/DocumentController.cpp

@@ -50,19 +50,19 @@ void Cursor::setDocument(Document *document) { m_document = document; }
  * 
  * @return 光标位置字符的格式
  */
-Format Cursor::getCharacterFormat() const {
+CharacterFormat Cursor::getCharacterFormat() const {
     if (!m_document) {
-        return Format();
+        return CharacterFormat();
     }
     
     Position pos = m_position;
     if (pos.paragraphIndex < 0 || pos.paragraphIndex >= m_document->paragraphCount()) {
-        return Format();
+        return CharacterFormat();
     }
     
     Paragraph &para = m_document->paragraph(pos.paragraphIndex);
     if (pos.itemIndex < 0 || pos.itemIndex >= para.itemCount()) {
-        return Format();
+        return CharacterFormat();
     }
     
     auto &item = para.itemAt(pos.itemIndex);
@@ -72,7 +72,7 @@ Format Cursor::getCharacterFormat() const {
         return run.effectiveFormat(styleMgr);
     }
     
-    return Format();
+    return CharacterFormat();
 }
 
 /**
@@ -112,10 +112,17 @@ void Cursor::stopBlinking() { m_blinkTimer->stop(); m_visible = true; update(); 
  * @return 光标的边界矩形
  */
 QRectF Cursor::boundingRect() const {
-    Format charFormat = getCharacterFormat();
-    QFont font = (!charFormat.font().family().isEmpty()) ? charFormat.font() : QFont("Microsoft YaHei", 12);
+    CharacterFormat charFormat = getCharacterFormat();
+    QFont font;
+    if (charFormat.hasFontFamily() && charFormat.hasFontSize()) {
+        font = charFormat.toFont();
+    } else {
+        font = QFont("Microsoft YaHei", 12);
+    }
     QFontMetrics metrics(font);
-    return QRectF(0, 0, 1, metrics.height());
+    qreal ascent = metrics.ascent();
+    qreal descent = metrics.descent();
+    return QRectF(-1, -ascent - 1, 3, ascent + descent + 2);
 }
 
 /**
@@ -127,11 +134,37 @@ QRectF Cursor::boundingRect() const {
  */
 void Cursor::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) {
     if (!m_visible) return;
-    Format charFormat = getCharacterFormat();
-    QFont font = (!charFormat.font().family().isEmpty()) ? charFormat.font() : QFont("Microsoft YaHei", 12);
+    CharacterFormat charFormat = getCharacterFormat();
+    QFont font;
+    if (charFormat.hasFontFamily() && charFormat.hasFontSize()) {
+        font = charFormat.toFont();
+    } else {
+        font = QFont("Microsoft YaHei", 12);
+    }
     QFontMetricsF metrics(font);
+    
     painter->setPen(QPen(Qt::black, 1.0));
-    painter->drawLine(QPointF(0, 0), QPointF(0, metrics.height()));
+    
+    // 光标设置在基线上，所以需要向上移动 ascent 来从顶部开始绘制
+    qreal ascent = metrics.ascent();
+    qreal descent = metrics.descent();
+    
+    // 如果当前字符格式为斜体，则倾斜光标
+    if (charFormat.italicState() == PropertyState::SetTrue) {
+        // 创建倾斜变换：向左倾斜（模拟斜体效果）
+        QTransform transform;
+        transform.shear(-0.2, 0.0); // 向左倾斜，与斜体文本方向一致
+        painter->setTransform(transform, true);
+        
+        // 绘制倾斜的光标线（从基线向上到顶端，向下到底端）
+        painter->drawLine(QPointF(0, -ascent), QPointF(0, descent));
+        
+        // 恢复变换
+        painter->setTransform(QTransform());
+    } else {
+        // 正常绘制垂直光标线（从基线向上到顶端，向下到底端）
+        painter->drawLine(QPointF(0, -ascent), QPointF(0, descent));
+    }
 }
 
 /**

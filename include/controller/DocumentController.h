@@ -10,6 +10,7 @@
 #include "core/Document.h"
 #include "core/Selection.h"
 #include "core/StyleManager.h"
+#include "core/CharacterFormat.h"
 #include <QObject>
 
 /**
@@ -17,13 +18,6 @@
  * 
  * DocumentController类负责文档内容的编辑操作，提供文本插入、替换、删除等功能。
  * 它是连接用户输入和文档模型的桥梁，处理各种编辑命令并更新文档状态。
- * 
- * 主要功能：
- * - 文本插入（支持不同位置的插入）
- * - 文本替换（基于选择区域）
- * - 文本删除（支持选择区域删除）
- * - 段落管理（插入新段落）
- * - 文档状态通知
  */
 class DocumentController : public QObject {
     Q_OBJECT
@@ -73,16 +67,16 @@ public:
     void insertParagraph(int paragraphIndex);
 
     // 当前格式（直接格式）管理
-    Format currentDirectFormat() const;
-    void setCurrentDirectFormat(const Format &format);
+    CharacterFormat currentDirectFormat() const;
+    void setCurrentDirectFormat(const CharacterFormat &format);
 
     // 应用样式到选中区域
     void applyStyle(const Selection &selection, const QString &styleId);
 
     // 应用直接格式到选中区域
-    void applyDirectFormat(const Selection &selection, const Format &format);
+    void applyDirectFormat(const Selection &selection, const CharacterFormat &format);
     void applyDirectFormatToParagraph(Paragraph &para, int itemStart, int offsetStart,
-                                      int itemEnd, int offsetEnd, const Format &format);
+                                      int itemEnd, int offsetEnd, const CharacterFormat &format);
 
 signals:
     /**
@@ -95,11 +89,11 @@ signals:
      * @brief 当前格式变化信号
      * @param format 新的当前格式
      */
-    void currentFormatChanged(const Format &format); // 直接格式变化
+    void currentFormatChanged(const CharacterFormat &format);
 
 private:
     Document *m_document;
-    Format m_currentDirectFormat;   // 当前直接格式（用于新插入文本）
+    CharacterFormat m_currentDirectFormat;   // 当前直接格式（用于新插入文本）
     StyleManager *m_styleMgr;       // 样式管理器指针
 
     // 辅助函数

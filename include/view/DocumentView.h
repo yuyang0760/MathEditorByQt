@@ -9,9 +9,11 @@
 
 #include <QGraphicsView>
 #include <QGraphicsScene>
+#include <QMap>
 #include "core/Document.h"
 #include "core/Selection.h"
 #include "view/Cursor.h"
+#include "view/ParagraphLayout.h"
 
 class DocumentView : public QGraphicsView {
     Q_OBJECT
@@ -42,6 +44,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+    void resizeEvent(QResizeEvent *event) override;
 
 public:
     // 坐标转换
@@ -52,6 +55,21 @@ private:
     void updateInputMethod();
     void clearGraphicsItems();
     void rebuildScene();
+    
+    /**
+     * @brief 获取或创建段落布局
+     */
+    ParagraphLayout *getOrCreateLayout(int paragraphIndex);
+    
+    /**
+     * @brief 更新所有段落布局
+     */
+    void updateAllLayouts();
+    
+    /**
+     * @brief 清除所有布局缓存
+     */
+    void clearLayouts();
 
     QGraphicsScene *m_scene;
     Document *m_document;
@@ -59,6 +77,9 @@ private:
     Cursor *m_cursor;
     bool m_selecting;
     Position m_selectionStart;
+    
+    QMap<int, ParagraphLayout*> m_paragraphLayouts;  ///< 段落布局缓存
+    qreal m_maxWidth;  ///< 最大布局宽度
 };
 
 #endif // DOCUMENTVIEW_H

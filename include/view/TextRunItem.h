@@ -26,9 +26,13 @@ public:
     /**
      * @brief 构造函数
      * @param run 文本片段
+     * @param paragraphIndex 段落索引
+     * @param itemIndex 项索引
+     * @param offsetStart 片段起始偏移
+     * @param offsetEnd 片段结束偏移
      * @param parent 父图形项
      */
-    TextRunItem(const TextRun &run, QGraphicsItem *parent = nullptr);
+    TextRunItem(const TextRun &run, int paragraphIndex, int itemIndex, int offsetStart, int offsetEnd, QGraphicsItem *parent = nullptr);
 
     /**
      * @brief 设置文本片段
@@ -50,8 +54,32 @@ public:
      */
     void setSelected(bool selected, int start = 0, int end = -1);
 
+    /**
+     * @brief 获取段落索引
+     */
+    int paragraphIndex() const;
+    
+    /**
+     * @brief 获取项索引
+     */
+    int itemIndex() const;
+    
+    /**
+     * @brief 获取片段起始偏移
+     */
+    int offsetStart() const;
+    
+    /**
+     * @brief 获取片段结束偏移
+     */
+    int offsetEnd() const;
+
 private:
     TextRun m_run; ///< 内部存储的文本片段
+    int m_paragraphIndex; ///< 段落索引
+    int m_itemIndex; ///< 项索引
+    int m_offsetStart; ///< 片段起始偏移
+    int m_offsetEnd; ///< 片段结束偏移
 };
 
 #endif // TEXTRUNITEM_H

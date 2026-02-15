@@ -10,6 +10,7 @@
 #include "core/Selection.h"
 #include "core/Document.h"
 #include "core/StyleManager.h"
+#include "core/CharacterFormat.h"
 #include <QGraphicsItem>
 #include <QTimer>
 #include <QObject>
@@ -59,7 +60,7 @@ public:
      * @brief 获取字符格式
      * @return 光标位置字符的格式
      */
-    Format getCharacterFormat() const;
+    CharacterFormat getCharacterFormat() const;
 
     /**
      * @brief 显示光标

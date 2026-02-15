@@ -14,7 +14,7 @@
 #include <QPushButton>
 #include <QAction>
 #include <QColorDialog>
-#include "core/Format.h"
+#include "core/CharacterFormat.h"
 #include "core/TextRun.h"
 #include "util/PositionUtils.h"
 #include "core/StyleManager.h"
@@ -51,7 +51,9 @@ TextEditorWidget::TextEditorWidget(QWidget *parent)
     
     // 第一行：英语
     Paragraph para1;
-    Format defaultFormat(QFont("Microsoft YaHei", 12));
+    CharacterFormat defaultFormat;
+    defaultFormat.setFontFamily("Microsoft YaHei");
+    defaultFormat.setFontSize(12);
     para1.appendText("Hello, Math Editor!", defaultFormat);
     m_document->addParagraph(para1);
     
@@ -201,14 +203,14 @@ QVariant TextEditorWidget::inputMethodQuery(Qt::InputMethodQuery query) const {
     }
     return QWidget::inputMethodQuery(query);
 }
-/*
+/**
  * @brief 处理选区变化事件
- * @param selection 新的选区
  * 
  * 当用户通过鼠标或键盘操作改变选区时，会触发此事件。
- * 该方法负责更新选区控制器、确保光标可见、更新状态条、
- * 并根据选区是否为空来更新格式工具栏状态。
-*/
+ * 该方法负责更新选区控制器、确保光标可见、并根据选区是否为空来更新格式工具栏状态。
+ * 
+ * @param selection 新的选区对象
+ */
 void TextEditorWidget::onSelectionChanged(const Selection &selection) {
     // 同步到选区控制器
     if (m_selectionController) {
@@ -220,19 +222,19 @@ void TextEditorWidget::onSelectionChanged(const Selection &selection) {
     // 更新格式工具栏状态
     if (selection.isEmpty()) {
         // 无选择时：显示光标左侧字符的样式为当前直接格式
-        Format charFormat = getCharacterFormatBeforeCursor();
-        // 检查字体是否有效（通过字体族名是否为空来判断）
-        if (!charFormat.font().family().isEmpty()) {
+        CharacterFormat charFormat = getCharacterFormatBeforeCursor();
+        // 检查字体是否有效
+        if (charFormat.hasFontFamily() && charFormat.hasFontSize()) {
             m_documentController->setCurrentDirectFormat(charFormat);
         }
         
         // 显示当前直接格式
-        Format currentFormat = m_documentController->currentDirectFormat();
+        CharacterFormat currentFormat = m_documentController->currentDirectFormat();
         updateFormatToolbar(currentFormat);
     } else {
         // 规则2：如果有选择，显示最后一个选中字符的样式
         m_updatingFromSelection = true; // 标记正在从选择更新工具栏
-        Format selectionFormat = getSelectionFormat(selection);
+        CharacterFormat selectionFormat = getSelectionFormat(selection);
 
         // 将获取到的格式信息保存到成员变量，用于状态栏显示
         m_lastSelectionFormat = selectionFormat;
@@ -248,16 +250,16 @@ void TextEditorWidget::onSelectionChanged(const Selection &selection) {
  * @param selection 选择范围
  * @return 选择范围内文本的有效格式
 */
-Format TextEditorWidget::getSelectionFormat(const Selection &selection) {
+CharacterFormat TextEditorWidget::getSelectionFormat(const Selection &selection) {
     // 获取选择范围内文本的有效格式
     if (!m_document || selection.isEmpty()) {
-        return Format();
+        return CharacterFormat();
     }
     
     Position start = selection.normalizedStart();
     Position end = selection.normalizedEnd();
     
-    // 根据规则2：获取最后一个选中字符的样式
+    // 获取最后一个选中字符的格式
     // 最后一个字符是选中字符的最后一个字符（selection.end()）
     Position lastCharPos = selection.end();
 
@@ -267,25 +269,25 @@ Format TextEditorWidget::getSelectionFormat(const Selection &selection) {
     // 检查最后一个字符所在项是否有效
     if (lastCharPos.itemIndex < para.itemCount()) {
         auto &item = para.itemAt(lastCharPos.itemIndex);
-        // 如果是文本项，获取其有效格式（包含字符格式和段落格式的合并结果）
+        // 如果是文本项，获取其有效格式
         if (item.type == Paragraph::TextRunItem) {
             TextRun run = item.data.value<TextRun>();
             StyleManager *styleMgr = StyleManager::instance();
-            // 返回文本运行的有效格式（包含字符直接格式和样式继承格式）
+            // 返回文本运行的有效格式
             return run.effectiveFormat(styleMgr);
         }
     }
     
-    return Format();
+    return CharacterFormat();
 }
 /* 
  * @brief 获取光标前字符的格式（现在主要用于调试或未来扩展）
  * @return 光标前字符的格式
 */
-Format TextEditorWidget::getCharacterFormatBeforeCursor() {
+CharacterFormat TextEditorWidget::getCharacterFormatBeforeCursor() {
     // 获取光标前字符的格式（现在主要用于调试或未来扩展）
     if (!m_document) {
-        return Format();
+        return CharacterFormat();
     }
     
     // 获取当前光标位置
@@ -307,9 +309,18 @@ Format TextEditorWidget::getCharacterFormatBeforeCursor() {
         }
     }
     
-    return Format();
+    return CharacterFormat();
 }
 
+/**
+ * @brief 获取选择区域内的文本内容
+ * 
+ * 该方法从文档中提取选择区域内的文本内容，支持单段落选择。
+ * 处理跨项选择和部分选择的情况。
+ * 
+ * @param selection 选择区域
+ * @return 选择区域内的文本内容，如果选择为空或文档无效则返回空字符串
+ */
 QString TextEditorWidget::getSelectedText(const Selection &selection) {
     // 获取选中文字的内容
     if (!m_document || selection.isEmpty()) {
@@ -356,6 +367,12 @@ QString TextEditorWidget::getSelectedText(const Selection &selection) {
 
 
 
+/**
+ * @brief 更新样式下拉框
+ * 
+ * 该方法从样式管理器获取所有可用样式，并更新样式下拉框的内容。
+ * 在样式列表发生变化时调用，确保界面与数据同步。
+ */
 void TextEditorWidget::updateStyleCombo() {
     m_styleCombo->clear();
     QList<Style> styles = StyleManager::instance()->allStyles();
@@ -364,12 +381,26 @@ void TextEditorWidget::updateStyleCombo() {
     }
 }
 
+/**
+ * @brief 处理样式选择事件
+ * 
+ * 当用户从样式下拉框选择样式时触发此事件。
+ * 将选择的样式应用到当前选区内的文本。
+ * 
+ * @param index 选择的样式索引
+ */
 void TextEditorWidget::onStyleSelected(int index) {
     QString styleId = m_styleCombo->itemData(index).toString();
     Selection sel = m_selectionController->selection();
     m_documentController->applyStyle(sel, styleId);
 }
 
+/**
+ * @brief 处理样式列表变化事件
+ * 
+ * 当样式管理器中的样式列表发生变化时触发此事件。
+ * 重新加载样式下拉框的内容以保持界面同步。
+ */
 void TextEditorWidget::onStylesChanged() {
     updateStyleCombo();
 }
@@ -378,40 +409,70 @@ void TextEditorWidget::onStylesChanged() {
  * @brief 更新格式工具栏
  * @param format 当前选择格式
  */
-void TextEditorWidget::updateFormatToolbar(const Format &format) {
+void TextEditorWidget::updateFormatToolbar(const CharacterFormat &format) {
+    // 如果正在从选择更新工具栏，阻止控件触发信号
+    bool blockSignals = m_updatingFromSelection;
+    
+    if (blockSignals) {
+        m_fontCombo->blockSignals(true);
+        m_fontSizeCombo->blockSignals(true);
+        m_boldAction->blockSignals(true);
+        m_italicAction->blockSignals(true);
+        m_underlineAction->blockSignals(true);
+    }
 
     // 更新字体
-    m_fontCombo->setCurrentFont(format.font());
+    if (format.hasFontFamily() && format.hasFontSize()) {
+        m_fontCombo->setCurrentFont(format.toFont());
+    }
     
     // 更新字号
-    int fontSize = format.font().pointSize();
-    if (fontSize > 0) {
-        m_fontSizeCombo->setCurrentText(QString::number(fontSize));
+    if (format.hasFontSize()) {
+        int fontSize = format.fontSize();
+        if (fontSize > 0) {
+            m_fontSizeCombo->setCurrentText(QString::number(fontSize));
+        }
     }
     
     // 更新粗体、斜体、下划线
-    m_boldAction->setChecked(format.bold());
-    m_italicAction->setChecked(format.italic());
-    m_underlineAction->setChecked(format.underline());
+    m_boldAction->setChecked(format.boldState() == PropertyState::SetTrue);
+    m_italicAction->setChecked(format.italicState() == PropertyState::SetTrue);
+    m_underlineAction->setChecked(format.underlineState() == PropertyState::SetTrue);
     
     // 更新颜色按钮样式
-    QColor color = format.color();
-    if (color.isValid()) {
-        QString style = QString("QPushButton { background-color: %1; color: %2; }")
-                            .arg(color.name())
-                            .arg(color.lightness() > 128 ? "black" : "white");
-        m_colorButton->setStyleSheet(style);
-    } else {
-        m_colorButton->setStyleSheet("");
+    if (format.hasColor()) {
+        QColor color = format.color();
+        if (color.isValid()) {
+            QString style = QString("QPushButton { background-color: %1; color: %2; }")
+                                .arg(color.name())
+                                .arg(color.lightness() > 128 ? "black" : "white");
+            m_colorButton->setStyleSheet(style);
+        } else {
+            m_colorButton->setStyleSheet("");
+        }
+    }
+    
+    if (blockSignals) {
+        m_fontCombo->blockSignals(false);
+        m_fontSizeCombo->blockSignals(false);
+        m_boldAction->blockSignals(false);
+        m_italicAction->blockSignals(false);
+        m_underlineAction->blockSignals(false);
     }
 }
 
+/**
+ * @brief 处理字体族变化事件
+ * 
+ * 当用户从字体下拉框选择字体时触发此事件。
+ * 更新当前直接格式的字体族，并应用到选区内的文本。
+ * 
+ * @param font 选择的字体对象
+ */
 void TextEditorWidget::onFontFamilyChanged(const QFont &font) {
     // 先获取当前直接格式并修改
-    Format currentFormat = m_documentController->currentDirectFormat();
-    QFont newFont = currentFormat.font();
-    newFont.setFamily(font.family());
-    currentFormat.setFont(newFont);
+    CharacterFormat currentFormat = m_documentController->currentDirectFormat();
+    currentFormat.setFontFamily(font.family());
     
     // 设置新的直接格式
     m_documentController->setCurrentDirectFormat(currentFormat);
@@ -423,15 +484,21 @@ void TextEditorWidget::onFontFamilyChanged(const QFont &font) {
     }
 }
 
+/**
+ * @brief 处理字号变化事件
+ * 
+ * 当用户从字号下拉框选择字号时触发此事件。
+ * 更新当前直接格式的字号，并应用到选区内的文本。
+ * 
+ * @param size 选择的字号字符串
+ */
 void TextEditorWidget::onFontSizeChanged(const QString &size) {
     bool ok;
     int fontSize = size.toInt(&ok);
     if (ok && fontSize > 0) {
         // 先获取当前直接格式并修改
-        Format currentFormat = m_documentController->currentDirectFormat();
-        QFont newFont = currentFormat.font();
-        newFont.setPointSize(fontSize);
-        currentFormat.setFont(newFont);
+        CharacterFormat currentFormat = m_documentController->currentDirectFormat();
+        currentFormat.setFontSize(fontSize);
         
         // 设置新的直接格式
         m_documentController->setCurrentDirectFormat(currentFormat);
@@ -444,9 +511,17 @@ void TextEditorWidget::onFontSizeChanged(const QString &size) {
     }
 }
 
+/**
+ * @brief 处理粗体切换事件
+ * 
+ * 当用户点击粗体按钮时触发此事件。
+ * 切换当前直接格式的粗体状态，并应用到选区内的文本。
+ * 
+ * @param checked 粗体状态（true为启用，false为禁用）
+ */
 void TextEditorWidget::onBoldToggled(bool checked) {
     // 先获取当前直接格式并修改
-    Format currentFormat = m_documentController->currentDirectFormat();
+    CharacterFormat currentFormat = m_documentController->currentDirectFormat();
     currentFormat.setBold(checked);
     
     // 设置新的直接格式
@@ -461,7 +536,7 @@ void TextEditorWidget::onBoldToggled(bool checked) {
 
 void TextEditorWidget::onItalicToggled(bool checked) {
     // 先获取当前直接格式并修改
-    Format currentFormat = m_documentController->currentDirectFormat();
+    CharacterFormat currentFormat = m_documentController->currentDirectFormat();
     currentFormat.setItalic(checked);
     
     // 设置新的直接格式
@@ -476,7 +551,7 @@ void TextEditorWidget::onItalicToggled(bool checked) {
 
 void TextEditorWidget::onUnderlineToggled(bool checked) {
     // 先获取当前直接格式并修改
-    Format currentFormat = m_documentController->currentDirectFormat();
+    CharacterFormat currentFormat = m_documentController->currentDirectFormat();
     currentFormat.setUnderline(checked);
     
     // 设置新的直接格式
@@ -490,10 +565,10 @@ void TextEditorWidget::onUnderlineToggled(bool checked) {
 }
 
 void TextEditorWidget::onColorClicked() {
-    Format currentFormat = m_documentController->currentDirectFormat();
-    QColor currentColor = currentFormat.color();
+    CharacterFormat currentFormat = m_documentController->currentDirectFormat();
+    QColor currentColor = currentFormat.hasColor() ? currentFormat.color() : Qt::black;
     
-    QColorDialog dialog(currentColor.isValid() ? currentColor : Qt::black, this);
+    QColorDialog dialog(currentColor, this);
     if (dialog.exec() == QDialog::Accepted) {
         QColor selectedColor = dialog.selectedColor();
         

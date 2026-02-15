@@ -5,7 +5,7 @@
 // ============================================================================
 
 #include "controller/DocumentController.h"
-#include "core/Format.h"
+#include "core/CharacterFormat.h"
 #include "core/TextRun.h"
 #include "core/StyleManager.h"
 #include "util/ParagraphUtils.h"
@@ -46,7 +46,10 @@ void DocumentController::insertText(const Position &position, const QString &tex
     if (position.paragraphIndex >= m_document->paragraphCount()) {
         // 如果段落索引无效，追加新段落
         Paragraph newPara;
-        newPara.appendText(text, Format(QFont("Microsoft YaHei", 12)));
+        CharacterFormat defaultFormat;
+        defaultFormat.setFontFamily("Microsoft YaHei");
+        defaultFormat.setFontSize(12);
+        newPara.appendText(text, defaultFormat);
         m_document->insertParagraph(m_document->paragraphCount(), newPara);
         emit documentChanged();
         return;
@@ -57,7 +60,10 @@ void DocumentController::insertText(const Position &position, const QString &tex
 
     // 如果段落为空或item索引超出，新建项
     if (para.itemCount() == 0 || itemIndex >= para.itemCount()) {
-        para.appendText(text, Format(QFont("Microsoft YaHei", 12)));
+        CharacterFormat defaultFormat;
+        defaultFormat.setFontFamily("Microsoft YaHei");
+        defaultFormat.setFontSize(12);
+        para.appendText(text, defaultFormat);
         emit documentChanged();
         return;
     }
@@ -70,7 +76,9 @@ void DocumentController::insertText(const Position &position, const QString &tex
         item.data = QVariant::fromValue(run);
     } else { // MathObjectItem
         // 公式项：根据偏移在公式前后插入新TextRun
-        Format defaultFormat(QFont("Microsoft YaHei", 12));
+        CharacterFormat defaultFormat;
+        defaultFormat.setFontFamily("Microsoft YaHei");
+        defaultFormat.setFontSize(12);
         Paragraph::Item newItem;
         newItem.type = Paragraph::TextRunItem;
         newItem.data = QVariant::fromValue(TextRun(text, defaultFormat));
@@ -159,11 +167,11 @@ void DocumentController::insertParagraph(int paragraphIndex) {
     emit documentChanged();
 }
 
-Format DocumentController::currentDirectFormat() const {
+CharacterFormat DocumentController::currentDirectFormat() const {
     return m_currentDirectFormat;
 }
 
-void DocumentController::setCurrentDirectFormat(const Format &format) {
+void DocumentController::setCurrentDirectFormat(const CharacterFormat &format) {
     m_currentDirectFormat = format;
     emit currentFormatChanged(format);
 }
@@ -182,13 +190,31 @@ void DocumentController::applyStyle(const Selection &selection, const QString &s
         // 跨段落选择
         // 处理起始段落（从选择开始到段落结束）
         Paragraph &startPara = m_document->paragraph(start.paragraphIndex);
+        int startParaLastItem = startPara.itemCount() - 1;
+        int startParaLastOffset = 0;
+        if (startParaLastItem >= 0) {
+            auto &lastItem = startPara.itemAt(startParaLastItem);
+            if (lastItem.type == Paragraph::TextRunItem) {
+                TextRun lastRun = lastItem.data.value<TextRun>();
+                startParaLastOffset = lastRun.length();
+            }
+        }
         applyStyleToParagraph(startPara, start.itemIndex, start.offset, 
-                             startPara.itemCount() - 1, 0, styleId);
+                             startParaLastItem, startParaLastOffset, styleId);
         
         // 处理中间完整段落
         for (int paraIndex = start.paragraphIndex + 1; paraIndex < end.paragraphIndex; ++paraIndex) {
             Paragraph &para = m_document->paragraph(paraIndex);
-            applyStyleToParagraph(para, 0, 0, para.itemCount() - 1, 0, styleId);
+            int paraLastItem = para.itemCount() - 1;
+            int paraLastOffset = 0;
+            if (paraLastItem >= 0) {
+                auto &lastItem = para.itemAt(paraLastItem);
+                if (lastItem.type == Paragraph::TextRunItem) {
+                    TextRun lastRun = lastItem.data.value<TextRun>();
+                    paraLastOffset = lastRun.length();
+                }
+            }
+            applyStyleToParagraph(para, 0, 0, paraLastItem, paraLastOffset, styleId);
         }
         
         // 处理结束段落（从段落开始到选择结束）
@@ -233,7 +259,7 @@ void DocumentController::applyStyleToParagraph(Paragraph &para, int itemStart, i
  * @param selection 要应用格式的选择区域
  * @param format 要应用的直接格式
  */
-void DocumentController::applyDirectFormat(const Selection &selection, const Format &format) {
+void DocumentController::applyDirectFormat(const Selection &selection, const CharacterFormat &format) {
     if (!m_document || selection.isEmpty()) return;
 
     Position start = selection.normalizedStart();
@@ -247,13 +273,31 @@ void DocumentController::applyDirectFormat(const Selection &selection, const For
         // 跨段落选择
         // 处理起始段落（从选择开始到段落结束）
         Paragraph &startPara = m_document->paragraph(start.paragraphIndex);
+        int startParaLastItem = startPara.itemCount() - 1;
+        int startParaLastOffset = 0;
+        if (startParaLastItem >= 0) {
+            auto &lastItem = startPara.itemAt(startParaLastItem);
+            if (lastItem.type == Paragraph::TextRunItem) {
+                TextRun lastRun = lastItem.data.value<TextRun>();
+                startParaLastOffset = lastRun.length();
+            }
+        }
         applyDirectFormatToParagraph(startPara, start.itemIndex, start.offset, 
-                                    startPara.itemCount() - 1, 0, format);
+                                    startParaLastItem, startParaLastOffset, format);
         
         // 处理中间完整段落
         for (int paraIndex = start.paragraphIndex + 1; paraIndex < end.paragraphIndex; ++paraIndex) {
             Paragraph &para = m_document->paragraph(paraIndex);
-            applyDirectFormatToParagraph(para, 0, 0, para.itemCount() - 1, 0, format);
+            int paraLastItem = para.itemCount() - 1;
+            int paraLastOffset = 0;
+            if (paraLastItem >= 0) {
+                auto &lastItem = para.itemAt(paraLastItem);
+                if (lastItem.type == Paragraph::TextRunItem) {
+                    TextRun lastRun = lastItem.data.value<TextRun>();
+                    paraLastOffset = lastRun.length();
+                }
+            }
+            applyDirectFormatToParagraph(para, 0, 0, paraLastItem, paraLastOffset, format);
         }
         
         // 处理结束段落（从段落开始到选择结束）
@@ -278,7 +322,7 @@ void DocumentController::applyDirectFormat(const Selection &selection, const For
  * @param format 要应用的直接格式
  */
 void DocumentController::applyDirectFormatToParagraph(Paragraph &para, int itemStart, int offsetStart,
-                                                      int itemEnd, int offsetEnd, const Format &format) {
+                                                      int itemEnd, int offsetEnd, const CharacterFormat &format) {
     // 使用工具类简化直接格式应用逻辑
     ParagraphUtils::applyFormatToSelection(para, itemStart, offsetStart, itemEnd, offsetEnd,
         [format](TextRun &run) {
