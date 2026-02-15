@@ -46,6 +46,9 @@ DocumentView::DocumentView(QWidget *parent)
  */
 void DocumentView::setDocument(Document *document) {
     m_document = document;
+    if (m_cursor) {
+        m_cursor->setDocument(document);
+    }
     if (m_document && m_cursor) {
         Position start = {0,0,0};
         m_cursor->setPosition(start);
@@ -69,8 +72,9 @@ void DocumentView::setSelection(const Selection &selection) {
     if (m_selection != selection) {
         m_selection = selection;
         if (m_cursor) {
-            m_cursor->setPosition(selection.start());
-            QPointF pt = pointFromPosition(selection.start());
+            // 光标应该在最后松开鼠标的位置，即selection.end()
+            m_cursor->setPosition(selection.end());
+            QPointF pt = pointFromPosition(selection.end());
             m_cursor->setPos(pt);
         }
         rebuildScene(); // 重建场景以更新选中文本的背景颜色
@@ -137,7 +141,7 @@ void DocumentView::rebuildScene() {
                     int end = run.length();
                     
                     // 检查重叠情况
-                    if (normStart.paragraph == p && normStart.item == i && normEnd.paragraph == p && normEnd.item == i) {
+                    if (normStart.paragraphIndex == p && normStart.itemIndex == i && normEnd.paragraphIndex == p && normEnd.itemIndex == i) {
                         // 选择区域完全在当前文本项内
                         shouldSelect = true;
                         start = normStart.offset;
@@ -148,12 +152,12 @@ void DocumentView::rebuildScene() {
                         shouldSelect = true;
                         
                         // 调整起始位置
-                        if (normStart.paragraph == p && normStart.item == i) {
+                        if (normStart.paragraphIndex == p && normStart.itemIndex == i) {
                             start = normStart.offset;
                         }
                         
                         // 调整结束位置
-                        if (normEnd.paragraph == p && normEnd.item == i) {
+                        if (normEnd.paragraphIndex == p && normEnd.itemIndex == i) {
                             end = normEnd.offset;
                         }
                     }
@@ -324,8 +328,8 @@ QVariant DocumentView::inputMethodQuery(Qt::InputMethodQuery query) const {
         return m_cursor->position().offset;
     }
     case Qt::ImSurroundingText: {
-        if (m_document && m_cursor->position().paragraph < m_document->paragraphCount()) {
-            Paragraph paragraph = m_document->paragraph(m_cursor->position().paragraph);
+        if (m_document && m_cursor->position().paragraphIndex < m_document->paragraphCount()) {
+            Paragraph paragraph = m_document->paragraph(m_cursor->position().paragraphIndex);
             return paragraph.plainText();
         }
         return QString();
@@ -401,8 +405,8 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
                         qreal leftDist = point.x() - charX;
                         qreal rightDist = nextX - point.x();
                         Position pos;
-                        pos.paragraph = paraIndex;
-                        pos.item = i;
+                        pos.paragraphIndex = paraIndex;
+                        pos.itemIndex = i;
                         pos.offset = offset + (leftDist > rightDist ? 1 : 0); // 选择最近的边界
                         return pos;
                     }
@@ -412,8 +416,8 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
                 // 点击公式项：根据点击位置在左半部分或右半部分决定偏移0（之前）或1（之后）
                 qreal half = itemWidth / 2;
                 Position pos;
-                pos.paragraph = paraIndex;
-                pos.item = i;
+                pos.paragraphIndex = paraIndex;
+                pos.itemIndex = i;
                 pos.offset = (point.x() < x + half) ? 0 : 1;
                 return pos;
             }
@@ -424,10 +428,10 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
 
     // 4. 点击在段落末尾之后：返回最后一个项的末尾
     Position pos;
-    pos.paragraph = paraIndex;
-    pos.item = para.itemCount() - 1;
-    if (pos.item >= 0) {
-        const auto &lastItem = para.itemAt(pos.item);
+    pos.paragraphIndex = paraIndex;
+    pos.itemIndex = para.itemCount() - 1;
+    if (pos.itemIndex >= 0) {
+        const auto &lastItem = para.itemAt(pos.itemIndex);
         if (lastItem.type == Paragraph::TextRunItem) {
             TextRun run = lastItem.data.value<TextRun>();
             pos.offset = run.length();
@@ -436,7 +440,7 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
         }
     } else {
         // 段落为空
-        pos.item = 0;
+        pos.itemIndex = 0;
         pos.offset = 0;
     }
     return pos;
@@ -451,7 +455,7 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
  * @return 点坐标
  */
 QPointF DocumentView::pointFromPosition(const Position &pos) const {
-    if (!m_document || pos.paragraph >= m_document->paragraphCount())
+    if (!m_document || pos.paragraphIndex >= m_document->paragraphCount())
         return QPointF(10, 10);
 
     QFont defaultFont("Microsoft YaHei", 12);
@@ -460,12 +464,12 @@ QPointF DocumentView::pointFromPosition(const Position &pos) const {
     qreal leftMargin = 10.0;
 
     // Y坐标
-    qreal y = leftMargin + pos.paragraph * lineHeight;
+    qreal y = leftMargin + pos.paragraphIndex * lineHeight;
 
     // X坐标：累加直到目标项，再加上项内偏移
-    Paragraph para = m_document->paragraph(pos.paragraph);
+    Paragraph para = m_document->paragraph(pos.paragraphIndex);
     qreal x = leftMargin;
-    for (int i = 0; i < pos.item; ++i) {
+    for (int i = 0; i < pos.itemIndex; ++i) {
         const auto &item = para.itemAt(i);
         if (item.type == Paragraph::TextRunItem) {
             TextRun run = item.data.value<TextRun>();
@@ -477,8 +481,8 @@ QPointF DocumentView::pointFromPosition(const Position &pos) const {
     }
 
     // 计算当前项内偏移对应的宽度
-    if (pos.item >= 0 && pos.item < para.itemCount()) {
-        const auto &item = para.itemAt(pos.item);
+    if (pos.itemIndex >= 0 && pos.itemIndex < para.itemCount()) {
+        const auto &item = para.itemAt(pos.itemIndex);
         if (item.type == Paragraph::TextRunItem) {
             TextRun run = item.data.value<TextRun>();
             QFontMetricsF fm(run.format().font());

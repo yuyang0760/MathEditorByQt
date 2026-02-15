@@ -7,14 +7,12 @@
 #include "controller/DocumentController.h"
 #include "core/Format.h"
 #include "core/TextRun.h"
+#include "core/StyleManager.h"
+#include "util/ParagraphUtils.h"
+#include <functional>
 
-/**
- * @brief 构造函数
- * 初始化文档控制器，设置父对象和默认文档指针
- * @param parent 父对象指针
- */
 DocumentController::DocumentController(QObject *parent)
-    : QObject(parent), m_document(nullptr) {}
+    : QObject(parent), m_document(nullptr), m_styleMgr(StyleManager::instance()) {}
 
 /**
  * @brief 设置文档对象
@@ -45,7 +43,7 @@ Document *DocumentController::document() const { return m_document; }
 void DocumentController::insertText(const Position &position, const QString &text) {
     if (!m_document || text.isEmpty()) return;
 
-    if (position.paragraph >= m_document->paragraphCount()) {
+    if (position.paragraphIndex >= m_document->paragraphCount()) {
         // 如果段落索引无效，追加新段落
         Paragraph newPara;
         newPara.appendText(text, Format(QFont("Microsoft YaHei", 12)));
@@ -54,8 +52,8 @@ void DocumentController::insertText(const Position &position, const QString &tex
         return;
     }
 
-    Paragraph &para = m_document->paragraph(position.paragraph);
-    int itemIndex = position.item;
+    Paragraph &para = m_document->paragraph(position.paragraphIndex);
+    int itemIndex = position.itemIndex;
 
     // 如果段落为空或item索引超出，新建项
     if (para.itemCount() == 0 || itemIndex >= para.itemCount()) {
@@ -122,16 +120,16 @@ void DocumentController::deleteText(const Selection &selection) {
     Position end = selection.normalizedEnd();
 
     // 如果跨段落，简化处理：只删除起始段落到结束段落？这里只实现同段落删除
-    if (start.paragraph != end.paragraph) {
+    if (start.paragraphIndex != end.paragraphIndex) {
         // 暂时忽略跨段落，或简单清除段落内容
         return;
     }
 
-    Paragraph &para = m_document->paragraph(start.paragraph);
-    if (start.item == end.item) {
+    Paragraph &para = m_document->paragraph(start.paragraphIndex);
+    if (start.itemIndex == end.itemIndex) {
         // 同一项内删除
-        if (start.item >= para.itemCount()) return;
-        auto &item = para.itemAt(start.item);
+        if (start.itemIndex >= para.itemCount()) return;
+        auto &item = para.itemAt(start.itemIndex);
         if (item.type == Paragraph::TextRunItem) {
             TextRun run = item.data.value<TextRun>();
             int len = end.offset - start.offset;
@@ -159,4 +157,131 @@ void DocumentController::insertParagraph(int paragraphIndex) {
     Paragraph newPara;
     m_document->insertParagraph(paragraphIndex, newPara);
     emit documentChanged();
+}
+
+Format DocumentController::currentDirectFormat() const {
+    return m_currentDirectFormat;
+}
+
+void DocumentController::setCurrentDirectFormat(const Format &format) {
+    m_currentDirectFormat = format;
+    emit currentFormatChanged(format);
+}
+
+void DocumentController::applyStyle(const Selection &selection, const QString &styleId) {
+    if (!m_document || selection.isEmpty()) return;
+
+    Position start = selection.normalizedStart();
+    Position end = selection.normalizedEnd();
+
+    if (start.paragraphIndex == end.paragraphIndex) {
+        // 单段落选择
+        Paragraph &para = m_document->paragraph(start.paragraphIndex);
+        applyStyleToParagraph(para, start.itemIndex, start.offset, end.itemIndex, end.offset, styleId);
+    } else {
+        // 跨段落选择
+        // 处理起始段落（从选择开始到段落结束）
+        Paragraph &startPara = m_document->paragraph(start.paragraphIndex);
+        applyStyleToParagraph(startPara, start.itemIndex, start.offset, 
+                             startPara.itemCount() - 1, 0, styleId);
+        
+        // 处理中间完整段落
+        for (int paraIndex = start.paragraphIndex + 1; paraIndex < end.paragraphIndex; ++paraIndex) {
+            Paragraph &para = m_document->paragraph(paraIndex);
+            applyStyleToParagraph(para, 0, 0, para.itemCount() - 1, 0, styleId);
+        }
+        
+        // 处理结束段落（从段落开始到选择结束）
+        Paragraph &endPara = m_document->paragraph(end.paragraphIndex);
+        applyStyleToParagraph(endPara, 0, 0, end.itemIndex, end.offset, styleId);
+    }
+    
+    emit documentChanged();
+}
+
+
+
+/**
+ * @brief 应用样式到段落的选择范围
+ * 
+ * 该方法将指定的样式应用到段落的选择范围内，使用工具类简化复杂的跨项分割逻辑。
+ * 应用样式时会清除直接格式，确保样式格式生效。
+ * 
+ * @param para 要操作的段落
+ * @param itemStart 起始项索引
+ * @param offsetStart 起始项内偏移
+ * @param itemEnd 结束项索引
+ * @param offsetEnd 结束项内偏移
+ * @param styleId 要应用的样式ID
+ */
+void DocumentController::applyStyleToParagraph(Paragraph &para, int itemStart, int offsetStart,
+                                               int itemEnd, int offsetEnd, const QString &styleId) {
+    // 使用工具类简化样式应用逻辑
+    ParagraphUtils::applyFormatToSelection(para, itemStart, offsetStart, itemEnd, offsetEnd,
+        [styleId](TextRun &run) {
+            run.setStyleId(styleId);
+            run.clearDirectFormat(); // 清除直接格式，使用样式
+        });
+}
+
+/**
+ * @brief 应用直接格式到选择区域
+ * 
+ * 该方法将指定的直接格式应用到选择区域内的文本，支持单段落和跨段落选择。
+ * 直接格式会覆盖样式设置，优先级高于样式格式。
+ * 
+ * @param selection 要应用格式的选择区域
+ * @param format 要应用的直接格式
+ */
+void DocumentController::applyDirectFormat(const Selection &selection, const Format &format) {
+    if (!m_document || selection.isEmpty()) return;
+
+    Position start = selection.normalizedStart();
+    Position end = selection.normalizedEnd();
+
+    if (start.paragraphIndex == end.paragraphIndex) {
+        // 单段落选择
+        Paragraph &para = m_document->paragraph(start.paragraphIndex);
+        applyDirectFormatToParagraph(para, start.itemIndex, start.offset, end.itemIndex, end.offset, format);
+    } else {
+        // 跨段落选择
+        // 处理起始段落（从选择开始到段落结束）
+        Paragraph &startPara = m_document->paragraph(start.paragraphIndex);
+        applyDirectFormatToParagraph(startPara, start.itemIndex, start.offset, 
+                                    startPara.itemCount() - 1, 0, format);
+        
+        // 处理中间完整段落
+        for (int paraIndex = start.paragraphIndex + 1; paraIndex < end.paragraphIndex; ++paraIndex) {
+            Paragraph &para = m_document->paragraph(paraIndex);
+            applyDirectFormatToParagraph(para, 0, 0, para.itemCount() - 1, 0, format);
+        }
+        
+        // 处理结束段落（从段落开始到选择结束）
+        Paragraph &endPara = m_document->paragraph(end.paragraphIndex);
+        applyDirectFormatToParagraph(endPara, 0, 0, end.itemIndex, end.offset, format);
+    }
+    
+    emit documentChanged();
+}
+
+/**
+ * @brief 应用直接格式到段落的选择范围
+ * 
+ * 该方法将指定的直接格式应用到段落的选择范围内，使用工具类简化复杂的跨项分割逻辑。
+ * 直接格式具有最高优先级，会覆盖样式设置。
+ * 
+ * @param para 要操作的段落
+ * @param itemStart 起始项索引
+ * @param offsetStart 起始项内偏移
+ * @param itemEnd 结束项索引
+ * @param offsetEnd 结束项内偏移
+ * @param format 要应用的直接格式
+ */
+void DocumentController::applyDirectFormatToParagraph(Paragraph &para, int itemStart, int offsetStart,
+                                                      int itemEnd, int offsetEnd, const Format &format) {
+    // 使用工具类简化直接格式应用逻辑
+    ParagraphUtils::applyFormatToSelection(para, itemStart, offsetStart, itemEnd, offsetEnd,
+        [format](TextRun &run) {
+            run.setDirectFormat(format); // 设置直接格式
+        });
 }

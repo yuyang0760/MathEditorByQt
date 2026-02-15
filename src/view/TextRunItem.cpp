@@ -8,6 +8,7 @@
 #include <QTextDocument>
 #include <QTextCursor>
 #include <QTextCharFormat>
+#include "core/StyleManager.h"  // 需要包含
 
 /**
  * @brief 构造函数
@@ -20,8 +21,10 @@
 TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
     : QGraphicsTextItem(run.text(), parent), m_run(run)
 {
-    setFont(run.format().font());
-    setDefaultTextColor(run.format().color());
+    StyleManager *styleMgr = StyleManager::instance();
+    Format eff = m_run.effectiveFormat(styleMgr);
+    setFont(eff.font());
+    setDefaultTextColor(eff.color());
     
     // 关键修复：移除文档边距，使文本从 (0,0) 开始绘制
     QTextDocument *doc = document();
@@ -40,8 +43,10 @@ TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
 void TextRunItem::setRun(const TextRun &run) {
     m_run = run;
     setPlainText(run.text());
-    setFont(run.format().font());
-    setDefaultTextColor(run.format().color());
+    StyleManager *styleMgr = StyleManager::instance();
+    Format eff = m_run.effectiveFormat(styleMgr);
+    setFont(eff.font());
+    setDefaultTextColor(eff.color());
     
     // 关键修复：移除文档边距，使文本从 (0,0) 开始绘制
     QTextDocument *doc = document();

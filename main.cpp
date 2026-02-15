@@ -23,7 +23,7 @@
 int main(int argc, char *argv[])
 {
     qDebug() << "Starting application...";
-    
+    qDebug() << "你好，世界！";
     // 创建应用程序实例
     QApplication a(argc, argv);
     

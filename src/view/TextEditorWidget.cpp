@@ -8,9 +8,16 @@
 #include <QKeyEvent>
 #include <QInputMethodEvent>
 #include <QLabel>
+#include <QToolBar>
+#include <QComboBox>
+#include <QFontComboBox>
+#include <QPushButton>
+#include <QAction>
+#include <QColorDialog>
 #include "core/Format.h"
 #include "core/TextRun.h"
 #include "util/PositionUtils.h"
+#include "core/StyleManager.h"
 
 /**
  * @brief 构造函数
@@ -19,26 +26,39 @@
  */
 TextEditorWidget::TextEditorWidget(QWidget *parent)
     : QWidget(parent),
-      m_layout(new QVBoxLayout(this)),
+      m_layout(nullptr), // 不再使用QVBoxLayout，将在setupUI中创建QHBoxLayout
+      m_toolBar(new QToolBar(this)),                 // 新增
+      m_styleCombo(new QComboBox(this)),                   // 新增
+      m_formatToolBar(new QToolBar(this)),           // 新增：格式工具栏
+      m_fontCombo(new QFontComboBox(this)),          // 新增：字体选择框
+      m_fontSizeCombo(new QComboBox(this)),          // 新增：字号选择框
+      m_boldAction(new QAction("B", this)),          // 新增：粗体按钮
+      m_italicAction(new QAction("I", this)),        // 新增：斜体按钮
+      m_underlineAction(new QAction("U", this)),     // 新增：下划线按钮
+      m_colorButton(new QPushButton("颜色", this)),  // 新增：颜色按钮
       m_documentView(new DocumentView(this)),
-      m_statusBar(new QStatusBar(this)),
-      m_statusLabel(nullptr),
       m_documentController(new DocumentController(this)),
       m_selectionController(new SelectionController(this)),
       m_inputController(new InputController(this)),
       m_document(nullptr),
-      m_lastMouseScenePos(0,0),
-      m_lastMouseViewPos(0,0)
+      m_updatingFromSelection(false)
 {
     setupUI();
     setupConnections();
     
     // 创建默认文档
     m_document = new Document();
-    Paragraph para;
+    
+    // 第一行：英语
+    Paragraph para1;
     Format defaultFormat(QFont("Microsoft YaHei", 12));
-    para.appendText("Hello, Math Editor!", defaultFormat);
-    m_document->addParagraph(para);
+    para1.appendText("Hello, Math Editor!", defaultFormat);
+    m_document->addParagraph(para1);
+    
+    // 第二行：中文
+    Paragraph para2;
+    para2.appendText("欢迎使用数学编辑器！", defaultFormat);
+    m_document->addParagraph(para2);
     
     setDocument(m_document);
     
@@ -65,28 +85,61 @@ void TextEditorWidget::setDocument(Document *document) {
 Document *TextEditorWidget::document() const { return m_document; }
 
 void TextEditorWidget::setupUI() {
-    m_layout->setContentsMargins(0, 0, 0, 0);
-    m_layout->setSpacing(0);
+    // 设置窗口大小
+    resize(1000, 800);
     
-    m_layout->addWidget(m_documentView);
-    m_layout->addWidget(m_statusBar);
+    // 创建水平分割布局
+    QHBoxLayout *mainLayout = new QHBoxLayout(this);
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
     
-    m_statusBar->setSizeGripEnabled(false);
+    // 左侧容器（占全部空间）
+    QWidget *leftWidget = new QWidget(this);
+    QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setContentsMargins(0, 0, 0, 0);
+    leftLayout->setSpacing(0);
     
-    // 创建两个标签：左侧显示主要信息，右侧专门显示鼠标信息
-    m_statusLabel = new QLabel(this);
-    m_statusLabel->setTextFormat(Qt::PlainText);
-    m_statusLabel->setWordWrap(true);
-    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    // 样式工具栏
+    m_toolBar->addWidget(new QLabel("样式:"));
+    m_toolBar->addWidget(m_styleCombo);
+    m_styleCombo->setEditable(false);
     
-    m_mouseInfoLabel = new QLabel(this);
-    m_mouseInfoLabel->setTextFormat(Qt::PlainText);
-    m_mouseInfoLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    m_mouseInfoLabel->setMinimumWidth(200); // 确保有足够的空间显示鼠标信息
+    leftLayout->addWidget(m_toolBar);
+
+    // 直接格式工具栏
+    m_formatToolBar->addWidget(new QLabel("字体:"));
+    m_formatToolBar->addWidget(m_fontCombo);
     
-    // 添加标签到状态栏
-    m_statusBar->addWidget(m_statusLabel, 1);   // 左侧占主要空间
-    m_statusBar->addPermanentWidget(m_mouseInfoLabel); // 右侧永久显示鼠标信息
+    m_formatToolBar->addWidget(new QLabel("字号:"));
+    m_fontSizeCombo->setEditable(true);
+    m_fontSizeCombo->addItems(QStringList() << "8" << "9" << "10" << "11" << "12" << "14" << "16" << "18" << "20" << "22" << "24" << "26" << "28" << "36" << "48" << "72");
+    m_fontSizeCombo->setCurrentText("18");
+    m_fontSizeCombo->setFixedWidth(80);  // 设置字号组合框宽度
+    m_formatToolBar->addWidget(m_fontSizeCombo);
+    
+    m_boldAction->setCheckable(true);
+    m_boldAction->setShortcut(QKeySequence::Bold);
+    m_formatToolBar->addAction(m_boldAction);
+    
+    m_italicAction->setCheckable(true);
+    m_italicAction->setShortcut(QKeySequence::Italic);
+    m_formatToolBar->addAction(m_italicAction);
+    
+    m_underlineAction->setCheckable(true);
+    m_underlineAction->setShortcut(QKeySequence::Underline);
+    m_formatToolBar->addAction(m_underlineAction);
+    
+    m_formatToolBar->addWidget(m_colorButton);
+    
+    leftLayout->addWidget(m_formatToolBar);
+
+    leftLayout->addWidget(m_documentView, 1);
+    
+    // 将左右容器添加到主布局
+    mainLayout->addWidget(leftWidget, 1);  // 左侧占全部空间
+    
+    // 设置主布局
+    setLayout(mainLayout);
 }
 
 void TextEditorWidget::setupConnections() {
@@ -98,8 +151,28 @@ void TextEditorWidget::setupConnections() {
     // 连接信号
     connect(m_documentView, &DocumentView::selectionChanged,
             this, &TextEditorWidget::onSelectionChanged);
-    connect(m_documentView, &DocumentView::mousePositionChanged,
-            this, &TextEditorWidget::onMousePositionChanged);
+
+    // 样式相关
+    connect(m_styleCombo, QOverload<int>::of(&QComboBox::activated),
+            this, &TextEditorWidget::onStyleSelected);
+    connect(StyleManager::instance(), &StyleManager::stylesChanged,
+            this, &TextEditorWidget::onStylesChanged);
+
+    // 直接格式相关
+    connect(m_fontCombo, &QFontComboBox::currentFontChanged,
+            this, &TextEditorWidget::onFontFamilyChanged);
+    connect(m_fontSizeCombo, &QComboBox::currentTextChanged,
+            this, &TextEditorWidget::onFontSizeChanged);
+    connect(m_boldAction, &QAction::toggled,
+            this, &TextEditorWidget::onBoldToggled);
+    connect(m_italicAction, &QAction::toggled,
+            this, &TextEditorWidget::onItalicToggled);
+    connect(m_underlineAction, &QAction::toggled,
+            this, &TextEditorWidget::onUnderlineToggled);
+    connect(m_colorButton, &QPushButton::clicked,
+            this, &TextEditorWidget::onColorClicked);
+
+    updateStyleCombo(); // 初始化样式下拉框
     
     connect(m_documentController, &DocumentController::documentChanged,
             m_documentView, &DocumentView::updateLayout);
@@ -128,7 +201,14 @@ QVariant TextEditorWidget::inputMethodQuery(Qt::InputMethodQuery query) const {
     }
     return QWidget::inputMethodQuery(query);
 }
-
+/*
+ * @brief 处理选区变化事件
+ * @param selection 新的选区
+ * 
+ * 当用户通过鼠标或键盘操作改变选区时，会触发此事件。
+ * 该方法负责更新选区控制器、确保光标可见、更新状态条、
+ * 并根据选区是否为空来更新格式工具栏状态。
+*/
 void TextEditorWidget::onSelectionChanged(const Selection &selection) {
     // 同步到选区控制器
     if (m_selectionController) {
@@ -136,84 +216,297 @@ void TextEditorWidget::onSelectionChanged(const Selection &selection) {
     }
 
     m_documentView->ensureCursorVisible();
-    updateStatusBar();
-}
-
-void TextEditorWidget::onMousePositionChanged(const QPointF &scenePos, const QPoint &viewPos) {
-    m_lastMouseScenePos = scenePos;
-    m_lastMouseViewPos = viewPos;
-    updateStatusBar();
-}
-
-
-
-void TextEditorWidget::updateStatusBar() {
-    if (!m_documentView || !m_documentView->cursor() || !m_document) return;
-
-    Position pos = m_documentView->cursor()->position();
-    int line = pos.paragraph + 1;
-
-    // 列号处理（兼容公式项）
-    QString colStr;
-    if (pos.item < m_document->paragraph(pos.paragraph).itemCount()) {
-        const auto &item = m_document->paragraph(pos.paragraph).itemAt(pos.item);
-        if (item.type == Paragraph::TextRunItem) {
-            colStr = QString::number(pos.offset + 1);
-        } else {
-            colStr = (pos.offset == 0) ? "公式前" : "公式后";
-        }
-    } else {
-        colStr = "?";
-    }
-
-    int currentLineIdx = PositionUtils::currentParagraphCharIndex(pos, m_document);
-    QPointF cursorPos = m_documentView->pointFromPosition(pos);
-
-    // 获取左右字符信息
-    CharInfo leftInfo = PositionUtils::getCharInfo(pos, m_document, m_documentView, true);
-    CharInfo rightInfo = PositionUtils::getCharInfo(pos, m_document, m_documentView, false);
-
-    // 构建主要状态信息（不含鼠标信息）
-    QString statusText;
-    statusText = QString("第%1行, 第%2列 | 当前行索引:%3 | 场景坐标: (%4, %5)\n")
-                     .arg(line).arg(colStr).arg(currentLineIdx)
-                     .arg(cursorPos.x(), 0, 'f', 2).arg(cursorPos.y(), 0, 'f', 2);
-
-    // 第二行：左右字符信息
-    QString leftCharStr = leftInfo.valid ? QString(leftInfo.ch) : "-";
-    QString leftIdxStr = leftInfo.valid ? QString::number(leftInfo.currentLineIndex) : "-";
-    QString rightCharStr = rightInfo.valid ? QString(rightInfo.ch) : "-";
-    QString rightIdxStr = rightInfo.valid ? QString::number(rightInfo.currentLineIndex) : "-";
-
-    statusText += QString("左字符索引:%1 字符:'%2' (坐标:%3,%4 宽:%5) | 右字符索引:%6 字符:'%7' (坐标:%8,%9 宽:%10)\n")
-                       .arg(leftIdxStr).arg(leftCharStr)
-                       .arg(leftInfo.pos.x(), 0, 'f', 2).arg(leftInfo.pos.y(), 0, 'f', 2).arg(leftInfo.width, 0, 'f', 2)
-                       .arg(rightIdxStr).arg(rightCharStr)
-                       .arg(rightInfo.pos.x(), 0, 'f', 2).arg(rightInfo.pos.y(), 0, 'f', 2).arg(rightInfo.width, 0, 'f', 2);
-
-    // 第三行：选择状态和输入法组合
-    QString thirdLine;
-    if (m_selectionController && m_selectionController->hasSelection()) {
-        thirdLine += "选择中 ";
-    }
-    if (m_inputController && !m_inputController->composingText().isEmpty()) {
-        thirdLine += "输入法: " + m_inputController->composingText() + " ";
-    }
-    if (thirdLine.isEmpty()) thirdLine = "无";
-    statusText += thirdLine + "\n";
-
-    // 第四行：算法信息
-    QString algoInfo = "光标定位:最近间隙 | 坐标计算:累积宽度";
-    statusText += algoInfo;
-
-    // 单独更新主要状态信息
-    m_statusLabel->setText(statusText);
     
-    // 单独更新鼠标信息（显示在最右边）
-    QString mouseInfo = QString("鼠标: 场景(%1,%2) 视图(%3,%4)")
-                             .arg(m_lastMouseScenePos.x(), 0, 'f', 2)
-                             .arg(m_lastMouseScenePos.y(), 0, 'f', 2)
-                             .arg(m_lastMouseViewPos.x())
-                             .arg(m_lastMouseViewPos.y());
-    m_mouseInfoLabel->setText(mouseInfo);
+    // 更新格式工具栏状态
+    if (selection.isEmpty()) {
+        // 无选择时：显示光标左侧字符的样式为当前直接格式
+        Format charFormat = getCharacterFormatBeforeCursor();
+        // 检查字体是否有效（通过字体族名是否为空来判断）
+        if (!charFormat.font().family().isEmpty()) {
+            m_documentController->setCurrentDirectFormat(charFormat);
+        }
+        
+        // 显示当前直接格式
+        Format currentFormat = m_documentController->currentDirectFormat();
+        updateFormatToolbar(currentFormat);
+    } else {
+        // 规则2：如果有选择，显示最后一个选中字符的样式
+        m_updatingFromSelection = true; // 标记正在从选择更新工具栏
+        Format selectionFormat = getSelectionFormat(selection);
+
+        // 将获取到的格式信息保存到成员变量，用于状态栏显示
+        m_lastSelectionFormat = selectionFormat;
+        
+        // 使用updateFormatToolbar方法来正确更新工具栏，避免触发信号
+        updateFormatToolbar(selectionFormat);
+        
+        m_updatingFromSelection = false; // 清除标记
+    }
+}
+/* 
+ * @brief 获取选择范围内文本的有效格式
+ * @param selection 选择范围
+ * @return 选择范围内文本的有效格式
+*/
+Format TextEditorWidget::getSelectionFormat(const Selection &selection) {
+    // 获取选择范围内文本的有效格式
+    if (!m_document || selection.isEmpty()) {
+        return Format();
+    }
+    
+    Position start = selection.normalizedStart();
+    Position end = selection.normalizedEnd();
+    
+    // 根据规则2：获取最后一个选中字符的样式
+    // 最后一个字符是选中字符的最后一个字符（selection.end()）
+    Position lastCharPos = selection.end();
+
+    // 如果是多段选择，返回最后一个选中字符所在段落的格式
+    Paragraph &para = m_document->paragraph(lastCharPos.paragraphIndex);
+
+    // 检查最后一个字符所在项是否有效
+    if (lastCharPos.itemIndex < para.itemCount()) {
+        auto &item = para.itemAt(lastCharPos.itemIndex);
+        // 如果是文本项，获取其有效格式（包含字符格式和段落格式的合并结果）
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun run = item.data.value<TextRun>();
+            StyleManager *styleMgr = StyleManager::instance();
+            // 返回文本运行的有效格式（包含字符直接格式和样式继承格式）
+            return run.effectiveFormat(styleMgr);
+        }
+    }
+    
+    return Format();
+}
+/* 
+ * @brief 获取光标前字符的格式（现在主要用于调试或未来扩展）
+ * @return 光标前字符的格式
+*/
+Format TextEditorWidget::getCharacterFormatBeforeCursor() {
+    // 获取光标前字符的格式（现在主要用于调试或未来扩展）
+    if (!m_document) {
+        return Format();
+    }
+    
+    // 获取当前光标位置
+    Selection currentSel = m_selectionController->selection();
+    if (currentSel.isEmpty()) {
+        // 如果没有选择，获取光标前一个字符的位置
+        Position cursorPos = currentSel.start();
+        if (cursorPos.paragraphIndex >= 0 && cursorPos.paragraphIndex < m_document->paragraphCount()) {
+            Paragraph &para = m_document->paragraph(cursorPos.paragraphIndex);
+            if (cursorPos.itemIndex >= 0 && cursorPos.itemIndex < para.itemCount()) {
+                // 获取光标前一个字符的格式
+                auto &item = para.itemAt(cursorPos.itemIndex);
+                if (item.type == Paragraph::TextRunItem) {
+                    TextRun run = item.data.value<TextRun>();
+                    StyleManager *styleMgr = StyleManager::instance();
+                    return run.effectiveFormat(styleMgr);
+                }
+            }
+        }
+    }
+    
+    return Format();
+}
+
+QString TextEditorWidget::getSelectedText(const Selection &selection) {
+    // 获取选中文字的内容
+    if (!m_document || selection.isEmpty()) {
+        return QString();
+    }
+    
+    Position start = selection.normalizedStart();
+    Position end = selection.normalizedEnd();
+    QString result;
+    
+    // 单段落选择
+    if (start.paragraphIndex == end.paragraphIndex) {
+        Paragraph &para = m_document->paragraph(start.paragraphIndex);
+        
+        // 遍历选中范围内的项
+        for (int itemIndex = start.itemIndex; itemIndex <= end.itemIndex; ++itemIndex) {
+            if (itemIndex < para.itemCount()) {
+                auto &item = para.itemAt(itemIndex);
+                if (item.type == Paragraph::TextRunItem) {
+                    TextRun run = item.data.value<TextRun>();
+                    QString text = run.text();
+                    
+                    // 处理当前项的选中部分
+                    if (itemIndex == start.itemIndex && itemIndex == end.itemIndex) {
+                        // 同一项内的部分选择
+                        result += text.mid(start.offset, end.offset - start.offset);
+                    } else if (itemIndex == start.itemIndex) {
+                        // 起始项：从offset到结尾
+                        result += text.mid(start.offset);
+                    } else if (itemIndex == end.itemIndex) {
+                        // 结束项：从开头到offset
+                        result += text.left(end.offset);
+                    } else {
+                        // 中间完整项
+                        result += text;
+                    }
+                }
+            }
+        }
+    }
+    
+    return result;
+}
+
+
+
+void TextEditorWidget::updateStyleCombo() {
+    m_styleCombo->clear();
+    QList<Style> styles = StyleManager::instance()->allStyles();
+    for (const Style &style : styles) {
+        m_styleCombo->addItem(style.name(), style.id());
+    }
+}
+
+void TextEditorWidget::onStyleSelected(int index) {
+    QString styleId = m_styleCombo->itemData(index).toString();
+    Selection sel = m_selectionController->selection();
+    m_documentController->applyStyle(sel, styleId);
+}
+
+void TextEditorWidget::onStylesChanged() {
+    updateStyleCombo();
+}
+
+/**
+ * @brief 更新格式工具栏
+ * @param format 当前选择格式
+ */
+void TextEditorWidget::updateFormatToolbar(const Format &format) {
+
+    // 更新字体
+    m_fontCombo->setCurrentFont(format.font());
+    
+    // 更新字号
+    int fontSize = format.font().pointSize();
+    if (fontSize > 0) {
+        m_fontSizeCombo->setCurrentText(QString::number(fontSize));
+    }
+    
+    // 更新粗体、斜体、下划线
+    m_boldAction->setChecked(format.bold());
+    m_italicAction->setChecked(format.italic());
+    m_underlineAction->setChecked(format.underline());
+    
+    // 更新颜色按钮样式
+    QColor color = format.color();
+    if (color.isValid()) {
+        QString style = QString("QPushButton { background-color: %1; color: %2; }")
+                            .arg(color.name())
+                            .arg(color.lightness() > 128 ? "black" : "white");
+        m_colorButton->setStyleSheet(style);
+    } else {
+        m_colorButton->setStyleSheet("");
+    }
+}
+
+void TextEditorWidget::onFontFamilyChanged(const QFont &font) {
+    // 先获取当前直接格式并修改
+    Format currentFormat = m_documentController->currentDirectFormat();
+    QFont newFont = currentFormat.font();
+    newFont.setFamily(font.family());
+    currentFormat.setFont(newFont);
+    
+    // 设置新的直接格式
+    m_documentController->setCurrentDirectFormat(currentFormat);
+    
+    // 如果有选中文字，应用到选中文字
+    Selection sel = m_selectionController->selection();
+    if (!sel.isEmpty()) {
+        m_documentController->applyDirectFormat(sel, currentFormat);
+    }
+}
+
+void TextEditorWidget::onFontSizeChanged(const QString &size) {
+    bool ok;
+    int fontSize = size.toInt(&ok);
+    if (ok && fontSize > 0) {
+        // 先获取当前直接格式并修改
+        Format currentFormat = m_documentController->currentDirectFormat();
+        QFont newFont = currentFormat.font();
+        newFont.setPointSize(fontSize);
+        currentFormat.setFont(newFont);
+        
+        // 设置新的直接格式
+        m_documentController->setCurrentDirectFormat(currentFormat);
+        
+        // 如果有选中文字，应用到选中文字
+        Selection sel = m_selectionController->selection();
+        if (!sel.isEmpty()) {
+            m_documentController->applyDirectFormat(sel, currentFormat);
+        }
+    }
+}
+
+void TextEditorWidget::onBoldToggled(bool checked) {
+    // 先获取当前直接格式并修改
+    Format currentFormat = m_documentController->currentDirectFormat();
+    currentFormat.setBold(checked);
+    
+    // 设置新的直接格式
+    m_documentController->setCurrentDirectFormat(currentFormat);
+    
+    // 如果有选中文字，应用到选中文字
+    Selection sel = m_selectionController->selection();
+    if (!sel.isEmpty()) {
+        m_documentController->applyDirectFormat(sel, currentFormat);
+    }
+}
+
+void TextEditorWidget::onItalicToggled(bool checked) {
+    // 先获取当前直接格式并修改
+    Format currentFormat = m_documentController->currentDirectFormat();
+    currentFormat.setItalic(checked);
+    
+    // 设置新的直接格式
+    m_documentController->setCurrentDirectFormat(currentFormat);
+    
+    // 如果有选中文字，应用到选中文字
+    Selection sel = m_selectionController->selection();
+    if (!sel.isEmpty()) {
+        m_documentController->applyDirectFormat(sel, currentFormat);
+    }
+}
+
+void TextEditorWidget::onUnderlineToggled(bool checked) {
+    // 先获取当前直接格式并修改
+    Format currentFormat = m_documentController->currentDirectFormat();
+    currentFormat.setUnderline(checked);
+    
+    // 设置新的直接格式
+    m_documentController->setCurrentDirectFormat(currentFormat);
+    
+    // 如果有选中文字，应用到选中文字
+    Selection sel = m_selectionController->selection();
+    if (!sel.isEmpty()) {
+        m_documentController->applyDirectFormat(sel, currentFormat);
+    }
+}
+
+void TextEditorWidget::onColorClicked() {
+    Format currentFormat = m_documentController->currentDirectFormat();
+    QColor currentColor = currentFormat.color();
+    
+    QColorDialog dialog(currentColor.isValid() ? currentColor : Qt::black, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        QColor selectedColor = dialog.selectedColor();
+        
+        // 先获取当前直接格式并修改
+        currentFormat.setColor(selectedColor);
+        
+        // 设置新的直接格式
+        m_documentController->setCurrentDirectFormat(currentFormat);
+        
+        // 如果有选中文字，应用到选中文字
+        Selection sel = m_selectionController->selection();
+        if (!sel.isEmpty()) {
+            m_documentController->applyDirectFormat(sel, currentFormat);
+        }
+    }
 }

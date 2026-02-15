@@ -125,7 +125,7 @@ bool Selection::operator!=(const Selection &other) const { return !(*this == oth
  * @return 如果选择有效返回true
  */
 bool Selection::isValid() const {
-    return m_start.paragraph >= 0 && m_end.paragraph >= 0;
+    return m_start.paragraphIndex >= 0 && m_end.paragraphIndex >= 0;
 }
 
 /**

@@ -11,8 +11,15 @@
 
 #include <QWidget>
 #include <QVBoxLayout>
-#include <QStatusBar>
+#include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
+#include <QToolBar>
+#include <QComboBox>
+#include <QFontComboBox>
+#include <QPushButton>
+#include <QAction>
+#include <QColorDialog>
 #include "view/DocumentView.h"
 #include "controller/DocumentController.h"
 #include "controller/SelectionController.h"
@@ -86,12 +93,16 @@ private slots:
     */
     void onSelectionChanged(const Selection &selection);
     
-    /*! \brief 鼠标位置改变槽函数
-        
-        \param scenePos 场景坐标
-        \param viewPos 视图坐标
-    */
-    void onMousePositionChanged(const QPointF &scenePos, const QPoint &viewPos);
+    void onStyleSelected(int index);          // 新增：样式选择
+    void onStylesChanged();                   // 新增：样式列表变化
+
+    // 直接格式工具栏槽函数
+    void onFontFamilyChanged(const QFont &font);
+    void onFontSizeChanged(const QString &size);
+    void onBoldToggled(bool checked);
+    void onItalicToggled(bool checked);
+    void onUnderlineToggled(bool checked);
+    void onColorClicked();
 
 private:
     /*! \brief 初始化用户界面
@@ -102,24 +113,32 @@ private:
     */
     void setupConnections();
     
-    /*! \brief 更新状态栏显示
-    */
-    void updateStatusBar();
+    void updateStyleCombo();                   // 新增：更新样式下拉框
+    void updateFormatToolbar(const Format &format); // 新增：更新格式工具栏
+    Format getSelectionFormat(const Selection &selection); // 新增：获取选择格式
+    Format getCharacterFormatBeforeCursor(); // 新增：获取光标前字符的格式
+    QString getSelectedText(const Selection &selection); // 新增：获取选中文字
 
-    QVBoxLayout *m_layout;                    ///< 主布局管理器
-    DocumentView *m_documentView;            ///< 文档视图组件
-    QStatusBar *m_statusBar;                  ///< 状态栏组件
-    QLabel *m_statusLabel;                    ///< 状态信息标签
-    QLabel *m_mouseInfoLabel;                 ///< 专门显示鼠标信息的标签
+    QVBoxLayout *m_layout;
+    QToolBar *m_toolBar;                       // 新增：工具栏
+    QComboBox *m_styleCombo;                   // 新增：样式下拉框
+    QToolBar *m_formatToolBar;                 // 新增：格式工具栏
+    QFontComboBox *m_fontCombo;                // 新增：字体选择框
+    QComboBox *m_fontSizeCombo;                // 新增：字号选择框
+    QAction *m_boldAction;                     // 新增：粗体按钮
+    QAction *m_italicAction;                   // 新增：斜体按钮
+    QAction *m_underlineAction;                // 新增：下划线按钮
+    QPushButton *m_colorButton;                // 新增：颜色按钮
+    DocumentView *m_documentView;
+
+    DocumentController *m_documentController;
+    SelectionController *m_selectionController;
+    InputController *m_inputController;
+
+    Document *m_document;
     
-    DocumentController *m_documentController; ///< 文档控制器
-    SelectionController *m_selectionController;///< 选择控制器
-    InputController *m_inputController;       ///< 输入控制器
-    
-    Document *m_document;                     ///< 当前文档对象
-    
-    QPointF m_lastMouseScenePos;             ///< 最后鼠标场景坐标
-    QPoint m_lastMouseViewPos;                ///< 最后鼠标视图坐标
+    bool m_updatingFromSelection;               // 新增：是否正在从选择更新工具栏
+    Format m_lastSelectionFormat;               // 新增：最后选择的格式，用于状态栏显示
 };
 
 #endif // TEXTEDITORWIDGET_H

@@ -1,18 +1,181 @@
-1. 插入位置始终在文档开头
-原因
-鼠标点击 DocumentView 改变选区后，DocumentView 发出 selectionChanged 信号，但 TextEditorWidget::onSelectionChanged 槽函数中没有将新的选区同步给 SelectionController。导致 InputController 通过 m_selectionController->selection() 获取的始终是初始值 (0,0,0)，因此所有插入操作都在第一个段落的开头进行。
+你的代码已经实现了样式和格式继承的核心逻辑，但界面层还没有添加样式下拉框，因此看不到。下面我将指导你如何添加样式下拉框，并确保它能正常工作。
 
-修复
-在 onSelectionChanged 中添加对 SelectionController::setSelection 的调用：
+1. 修改 TextEditorWidget.h 添加工具栏和样式下拉框
+在 TextEditorWidget 类中添加以下成员变量：
+
+QToolBar *m_toolBar;
+
+QComboBox *m_styleCombo;
+
+同时添加两个私有槽函数：
+
+void onStyleSelected(int index);
+
+void onStylesChanged();
+
+修改后的 TextEditorWidget.h 关键部分：
 
 cpp
-void TextEditorWidget::onSelectionChanged(const Selection &selection) {
-    // 同步到选区控制器
-    if (m_selectionController) {
-        m_selectionController->setSelection(selection);
-    }
+class TextEditorWidget : public QWidget {
+    Q_OBJECT
+public:
+    TextEditorWidget(QWidget *parent = nullptr);
+    // ... 其他公共方法
 
-    m_documentView->ensureCursorVisible();
-    updateStatusBar();
+private slots:
+    void onSelectionChanged(const Selection &selection);
+    void onMousePositionChanged(const QPointF &scenePos, const QPoint &viewPos);
+    void onStyleSelected(int index);          // 新增：样式选择
+    void onStylesChanged();                   // 新增：样式列表变化
+
+private:
+    void setupUI();
+    void setupConnections();
+    void updateStatusBar();
+    void updateStyleCombo();                   // 新增：更新样式下拉框
+
+    QVBoxLayout *m_layout;
+    QToolBar *m_toolBar;                       // 新增：工具栏
+    QComboBox *m_styleCombo;                   // 新增：样式下拉框
+    DocumentView *m_documentView;
+    QStatusBar *m_statusBar;
+    QLabel *m_statusLabel;
+    QLabel *m_mouseInfoLabel;
+
+    DocumentController *m_documentController;
+    SelectionController *m_selectionController;
+    InputController *m_inputController;
+
+    Document *m_document;
+    QPointF m_lastMouseScenePos;
+    QPoint m_lastMouseViewPos;
+};
+2. 修改 TextEditorWidget.cpp 实现工具栏和样式下拉框
+在构造函数中调用 setupUI() 和 setupConnections() 之前，先初始化新成员：
+
+cpp
+TextEditorWidget::TextEditorWidget(QWidget *parent)
+    : QWidget(parent),
+      m_layout(new QVBoxLayout(this)),
+      m_toolBar(new QToolBar(this)),                 // 新增
+      m_styleCombo(new QComboBox),                   // 新增
+      m_documentView(new DocumentView(this)),
+      m_statusBar(new QStatusBar(this)),
+      m_statusLabel(nullptr),
+      m_mouseInfoLabel(nullptr),
+      m_documentController(new DocumentController(this)),
+      m_selectionController(new SelectionController(this)),
+      m_inputController(new InputController(this)),
+      m_document(nullptr),
+      m_lastMouseScenePos(0,0),
+      m_lastMouseViewPos(0,0)
+{
+    setupUI();
+    setupConnections();
+    // ... 其余初始化
 }
-SelectionController::setSelection 内部会进行相等性判断，不会引起死循环。
+在 setupUI() 中添加工具栏和样式下拉框：
+
+cpp
+void TextEditorWidget::setupUI() {
+    m_layout->setContentsMargins(0, 0, 0, 0);
+    m_layout->setSpacing(0);
+
+    // 工具栏
+    m_toolBar->addWidget(new QLabel("样式:"));
+    m_toolBar->addWidget(m_styleCombo);
+    m_styleCombo->setEditable(false);
+    m_layout->addWidget(m_toolBar);                  // 将工具栏添加到布局顶部
+
+    m_layout->addWidget(m_documentView);
+    m_layout->addWidget(m_statusBar);
+
+    m_statusBar->setSizeGripEnabled(false);
+
+    m_statusLabel = new QLabel(this);
+    m_statusLabel->setTextFormat(Qt::PlainText);
+    m_statusLabel->setWordWrap(true);
+    m_statusLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    m_mouseInfoLabel = new QLabel(this);
+    m_mouseInfoLabel->setTextFormat(Qt::PlainText);
+    m_mouseInfoLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_mouseInfoLabel->setMinimumWidth(200);
+
+    m_statusBar->addWidget(m_statusLabel, 1);
+    m_statusBar->addPermanentWidget(m_mouseInfoLabel);
+}
+在 setupConnections() 中添加样式相关的连接：
+
+cpp
+void TextEditorWidget::setupConnections() {
+    // ... 原有连接
+
+    // 样式相关
+    connect(m_styleCombo, QOverload<int>::of(&QComboBox::activated),
+            this, &TextEditorWidget::onStyleSelected);
+    connect(StyleManager::instance(), &StyleManager::stylesChanged,
+            this, &TextEditorWidget::onStylesChanged);
+
+    updateStyleCombo(); // 初始化样式下拉框
+}
+实现 updateStyleCombo()、onStyleSelected() 和 onStylesChanged()：
+
+cpp
+void TextEditorWidget::updateStyleCombo() {
+    m_styleCombo->clear();
+    QList<Style> styles = StyleManager::instance()->allStyles();
+    for (const Style &style : styles) {
+        m_styleCombo->addItem(style.name(), style.id());
+    }
+}
+
+void TextEditorWidget::onStyleSelected(int index) {
+    QString styleId = m_styleCombo->itemData(index).toString();
+    Selection sel = m_selectionController->selection();
+    m_documentController->applyStyle(sel, styleId);
+}
+
+void TextEditorWidget::onStylesChanged() {
+    updateStyleCombo();
+}
+3. 修正 TextRunItem 的显示问题
+当前 TextRunItem 的构造函数中使用 run.format() 来设置字体和颜色，这只会应用直接格式，而不会应用样式。应该改为使用 run.effectiveFormat(styleMgr) 来获取最终格式。
+
+修改 TextRunItem.cpp 中的构造函数和 setRun 方法：
+
+cpp
+#include "core/StyleManager.h"  // 需要包含
+
+TextRunItem::TextRunItem(const TextRun &run, QGraphicsItem *parent)
+    : QGraphicsTextItem(run.text(), parent), m_run(run)
+{
+    StyleManager *styleMgr = StyleManager::instance();
+    Format eff = m_run.effectiveFormat(styleMgr);
+    setFont(eff.font());
+    setDefaultTextColor(eff.color());
+
+    QTextDocument *doc = document();
+    if (doc) {
+        doc->setDocumentMargin(0);
+    }
+}
+
+void TextRunItem::setRun(const TextRun &run) {
+    m_run = run;
+    setPlainText(run.text());
+    StyleManager *styleMgr = StyleManager::instance();
+    Format eff = m_run.effectiveFormat(styleMgr);
+    setFont(eff.font());
+    setDefaultTextColor(eff.color());
+
+    QTextDocument *doc = document();
+    if (doc) {
+        doc->setDocumentMargin(0);
+    }
+}
+4. 验证默认样式
+StyleManager 在构造时已经添加了一个默认样式“正文”(id="style_normal")，所以下拉框至少会有一项。如果没有任何样式，请检查 StyleManager::instance() 是否正确初始化。
+
+5. 完整代码替换
+将上述修改合并到你的 TextEditorWidget.h 和 .cpp 中，并确保包含了必要的头文件。重新编译运行，你应该能看到一个工具栏，其中包含一个“样式”下拉框，里面列出了“正文”样式。选中一段文本，选择样式，文本格式应该会改变。

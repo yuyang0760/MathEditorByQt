@@ -16,17 +16,17 @@
  * - 偏移量：项内的字符位置或公式前后位置
  */
 struct Position {
-    int paragraph;      ///< 段落索引（从0开始）
-    int item;           ///< 内容项索引（在段落中，从0开始）
+    int paragraphIndex;      ///< 段落索引（从0开始）
+    int itemIndex;           ///< 内容项索引（在段落中，从0开始）
     int offset;         ///< 项内偏移：对于文本是字符位置（0-长度），对于公式是0（前）或1（后）
 };
 
 inline bool operator==(const Position &a, const Position &b) {
-    return a.paragraph == b.paragraph && a.item == b.item && a.offset == b.offset;
+    return a.paragraphIndex == b.paragraphIndex && a.itemIndex == b.itemIndex && a.offset == b.offset;
 }
 inline bool operator<(const Position &a, const Position &b) {
-    if (a.paragraph != b.paragraph) return a.paragraph < b.paragraph;
-    if (a.item != b.item) return a.item < b.item;
+    if (a.paragraphIndex != b.paragraphIndex) return a.paragraphIndex < b.paragraphIndex;
+    if (a.itemIndex != b.itemIndex) return a.itemIndex < b.itemIndex;
     return a.offset < b.offset;
 }
 inline bool operator<=(const Position &a, const Position &b) {

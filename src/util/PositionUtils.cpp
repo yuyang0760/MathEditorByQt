@@ -17,12 +17,12 @@
  * @return 段落内的字符索引，无效返回-1
  */
 int PositionUtils::currentParagraphCharIndex(const Position &pos, Document *document) {
-    if (!document || pos.paragraph >= document->paragraphCount()) return -1;
+    if (!document || pos.paragraphIndex >= document->paragraphCount()) return -1;
     
     int index = 0;
-    const Paragraph &para = document->paragraph(pos.paragraph);
+    const Paragraph &para = document->paragraph(pos.paragraphIndex);
     
-    for (int i = 0; i < pos.item; ++i) {
+    for (int i = 0; i < pos.itemIndex; ++i) {
         const auto &item = para.itemAt(i);
         if (item.type == Paragraph::TextRunItem) {
             TextRun textRun = item.data.value<TextRun>();
@@ -32,8 +32,8 @@ int PositionUtils::currentParagraphCharIndex(const Position &pos, Document *docu
         }
     }
     
-    if (pos.item < para.itemCount()) {
-        const auto &item = para.itemAt(pos.item);
+    if (pos.itemIndex < para.itemCount()) {
+        const auto &item = para.itemAt(pos.itemIndex);
         if (item.type == Paragraph::TextRunItem) {
             index += pos.offset;
         } else {
@@ -59,20 +59,20 @@ CharInfo PositionUtils::getCharInfo(const Position &pos, Document *document, Doc
     CharInfo info;
     if (!document || !view) return info;
     
-    if (pos.paragraph < document->paragraphCount()) {
-        const Paragraph &para = document->paragraph(pos.paragraph);
-        if (pos.item < para.itemCount()) {
-            const auto &item = para.itemAt(pos.item);
+    if (pos.paragraphIndex < document->paragraphCount()) {
+        const Paragraph &para = document->paragraph(pos.paragraphIndex);
+        if (pos.itemIndex < para.itemCount()) {
+            const auto &item = para.itemAt(pos.itemIndex);
             if (item.type == Paragraph::TextRunItem) {
                 TextRun textRun = item.data.value<TextRun>();
                 int charIndex = isLeft ? pos.offset - 1 : pos.offset;
                 if (charIndex >= 0 && charIndex < textRun.text().length()) {
                     info.valid = true;
                     info.ch = textRun.text()[charIndex];
-                    info.currentLineIndex = currentParagraphCharIndex(Position{pos.paragraph, pos.item, charIndex}, document);
+                    info.currentLineIndex = currentParagraphCharIndex(Position{pos.paragraphIndex, pos.itemIndex, charIndex}, document);
                     
                     // 计算字符位置和宽度（简化实现）
-                    QPointF basePos = view->pointFromPosition(Position{pos.paragraph, pos.item, charIndex});
+                    QPointF basePos = view->pointFromPosition(Position{pos.paragraphIndex, pos.itemIndex, charIndex});
                     info.pos = basePos;
                     info.width = 10; // 简化宽度估计
                 }

@@ -9,6 +9,7 @@
 
 #include "core/Document.h"
 #include "core/Selection.h"
+#include "core/StyleManager.h"
 #include <QObject>
 
 /**
@@ -71,6 +72,18 @@ public:
      */
     void insertParagraph(int paragraphIndex);
 
+    // 当前格式（直接格式）管理
+    Format currentDirectFormat() const;
+    void setCurrentDirectFormat(const Format &format);
+
+    // 应用样式到选中区域
+    void applyStyle(const Selection &selection, const QString &styleId);
+
+    // 应用直接格式到选中区域
+    void applyDirectFormat(const Selection &selection, const Format &format);
+    void applyDirectFormatToParagraph(Paragraph &para, int itemStart, int offsetStart,
+                                      int itemEnd, int offsetEnd, const Format &format);
+
 signals:
     /**
      * @brief 文档变化信号
@@ -78,8 +91,21 @@ signals:
      */
     void documentChanged();
 
+    /**
+     * @brief 当前格式变化信号
+     * @param format 新的当前格式
+     */
+    void currentFormatChanged(const Format &format); // 直接格式变化
+
 private:
-    Document *m_document; ///< 当前操作的文档指针
+    Document *m_document;
+    Format m_currentDirectFormat;   // 当前直接格式（用于新插入文本）
+    StyleManager *m_styleMgr;       // 样式管理器指针
+
+    // 辅助函数
+    Paragraph::Item createTextItem(const TextRun &run);
+    void applyStyleToParagraph(Paragraph &para, int itemStart, int offsetStart,
+                               int itemEnd, int offsetEnd, const QString &styleId);
 };
 
 #endif // DOCUMENTCONTROLLER_H

@@ -76,12 +76,12 @@ void InputController::handleKeyPress(QKeyEvent *event) {
     // 处理回车键
     if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
         // 在当前段落之后插入新段落
-        m_documentController->insertParagraph(selection.start().paragraph + 1);
+        m_documentController->insertParagraph(selection.start().paragraphIndex + 1);
         
         // 移动光标到新段落的起始位置
         Position newPos;
-        newPos.paragraph = selection.start().paragraph + 1; // 新段落索引
-        newPos.item = 0;                                   // 第一个项
+        newPos.paragraphIndex = selection.start().paragraphIndex + 1; // 新段落索引
+        newPos.itemIndex = 0;                                   // 第一个项
         newPos.offset = 0;                                 // 项内偏移为0
         Selection newSelection(newPos, newPos);            // 创建新的选择区域
         m_selectionController->setSelection(newSelection);  // 更新选择

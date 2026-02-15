@@ -12,9 +12,11 @@
 #include <QVariant> // 用于存储 TextRun 或 MathObject
 #include <QList>
 
-class Format;
+#include "Format.h"
+
 class MathObject;
 class TextRun;
+class StyleManager;
 
 /*! \class Paragraph
     \brief 段落类
@@ -70,6 +72,14 @@ public:
     */
     void appendText(const QString &text, const Format &format);
     
+    /*! \brief 向段落末尾添加文本（带样式）
+        
+        \param text 要添加的文本内容
+        \param styleId 样式ID
+        \param directFormat 直接格式（可选）
+    */
+    void appendText(const QString &text, const QString &styleId, const Format &directFormat = Format());
+    
     /*! \brief 向段落末尾添加数学对象
         
         \param obj 要添加的数学对象
@@ -103,6 +113,14 @@ public:
     */
     void insertItem(int index, const Item &item);
 
+    /*! \brief 替换指定范围的项
+        
+        \param index 起始位置
+        \param count 要替换的项数量
+        \param newItems 新的项列表
+    */
+    void replaceItems(int index, int count, const QList<Item> &newItems);
+
     /*! \brief 获取段落的纯文本表示
         
         \return 段落中所有文本内容的拼接字符串
@@ -110,8 +128,14 @@ public:
     */
     QString plainText() const;
 
+    // 段落样式相关
+    QString styleId() const;
+    void setStyleId(const QString &styleId);
+    Format effectiveFormat(StyleManager *styleMgr) const; // 段落的最终格式（用于默认文本）
+
 private:
-    QList<Item> m_items;  ///< 存储段落内容项的列表
+    QList<Item> m_items;
+    QString m_styleId;   ///< 段落样式ID，默认为空（将使用文档默认样式）
 };
 
 #endif // PARAGRAPH_H

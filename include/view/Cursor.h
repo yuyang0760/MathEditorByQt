@@ -8,6 +8,8 @@
 #define CURSOR_H
 
 #include "core/Selection.h"
+#include "core/Document.h"
+#include "core/StyleManager.h"
 #include <QGraphicsItem>
 #include <QTimer>
 #include <QObject>
@@ -46,6 +48,18 @@ public:
      * @return 当前光标位置
      */
     Position position() const;
+
+    /**
+     * @brief 设置文档对象
+     * @param document 文档指针
+     */
+    void setDocument(Document *document);
+
+    /**
+     * @brief 获取字符格式
+     * @return 光标位置字符的格式
+     */
+    Format getCharacterFormat() const;
 
     /**
      * @brief 显示光标
@@ -98,6 +112,7 @@ private:
     Position m_position;        ///< 光标位置
     bool m_visible;            ///< 可见性标志
     QTimer *m_blinkTimer;      ///< 闪烁定时器
+    Document *m_document;      ///< 文档指针
     static const int BLINK_INTERVAL = 500;  ///< 闪烁间隔（毫秒）
 };
 

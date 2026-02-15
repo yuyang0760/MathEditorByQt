@@ -44,12 +44,16 @@ set(PROJECT_SOURCES
     src/core/Paragraph.cpp
     src/core/Document.cpp
     src/core/Selection.cpp
+    src/core/Style.cpp
+    src/core/StyleManager.cpp
     include/core/Format.h
     include/core/TextRun.h
     include/core/MathObject.h
     include/core/Paragraph.h
     include/core/Document.h
     include/core/Selection.h
+    include/core/Style.h
+    include/core/StyleManager.h
     
     # 视图模块
     src/view/Cursor.cpp
@@ -73,7 +77,9 @@ set(PROJECT_SOURCES
     
     # 工具模块
     src/util/PositionUtils.cpp
+    src/util/ParagraphUtils.cpp
     include/util/PositionUtils.h
+    include/util/ParagraphUtils.h
     
     # IO模块
     src/io/DocumentReader.cpp
