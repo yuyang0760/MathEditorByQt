@@ -110,6 +110,14 @@ signals:
 
 private:
     /**
+     * @brief 完成一行的布局计算
+     */
+    void finishLine(Line &line, qreal y, qreal width, 
+                    qreal maxAscent, qreal maxDescent,
+                    const Position &startPos,
+                    int lastItemIndex, int lastOffset);
+    
+    /**
      * @brief 计算文本的宽度
      */
     qreal calculateTextWidth(const TextRun &run, int start, int length) const;

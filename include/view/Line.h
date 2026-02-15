@@ -83,6 +83,36 @@ public:
     qreal baseline() const;
     
     /**
+     * @brief 设置行的最大 ascent（从基线到顶部的最大高度）
+     */
+    void setMaxAscent(qreal ascent);
+    
+    /**
+     * @brief 获取行的最大 ascent
+     */
+    qreal maxAscent() const;
+    
+    /**
+     * @brief 设置行的最大 descent（从基线到底部的最大高度）
+     */
+    void setMaxDescent(qreal descent);
+    
+    /**
+     * @brief 获取行的最大 descent
+     */
+    qreal maxDescent() const;
+    
+    /**
+     * @brief 设置行高
+     */
+    void setLineHeight(qreal height);
+    
+    /**
+     * @brief 获取行高
+     */
+    qreal lineHeight() const;
+    
+    /**
      * @brief 添加行片段
      */
     void addSegment(const LineSegment &segment);
@@ -135,6 +165,9 @@ private:
     int m_lineIndex;         ///< 行在段落中的索引
     QRectF m_rect;          ///< 行的矩形区域
     qreal m_baseline;       ///< 行的基线位置（相对于行顶部）
+    qreal m_maxAscent;      ///< 行的最大 ascent（从基线到顶部）
+    qreal m_maxDescent;     ///< 行的最大 descent（从基线到底部）
+    qreal m_lineHeight;     ///< 行高
     QList<LineSegment> m_segments; ///< 行片段列表
     Position m_startPosition;  ///< 行起始位置
     Position m_endPosition;    ///< 行结束位置

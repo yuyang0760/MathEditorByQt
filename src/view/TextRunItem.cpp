@@ -42,8 +42,15 @@ TextRunItem::TextRunItem(const TextRun &run, int paragraphIndex, int itemIndex, 
     // 禁用 QGraphicsTextItem 的默认选择功能
     setTextInteractionFlags(Qt::NoTextInteraction);
     
-    // 确保初始状态下没有任何选择高亮
-    setSelected(false);
+    // 确保初始状态下没有任何选择高亮 - 彻底清除
+    QTextCursor cursor = textCursor();
+    cursor.select(QTextCursor::Document);
+    QTextCharFormat clearFormat;
+    clearFormat.setBackground(Qt::transparent);
+    clearFormat.clearForeground();
+    cursor.setCharFormat(clearFormat);
+    cursor.clearSelection();
+    setTextCursor(cursor);
 }
 
 /**
@@ -99,11 +106,13 @@ int TextRunItem::offsetEnd() const { return m_offsetEnd; }
 void TextRunItem::setSelected(bool selected, int start, int end) {
     QTextCursor cursor = textCursor();
     
-    // 重置所有文本格式
+    // 彻底重置所有文本格式 - 确保完全清除
     cursor.select(QTextCursor::Document);
-    QTextCharFormat format;
-    format.setBackground(Qt::transparent);
-    cursor.setCharFormat(format);
+    QTextCharFormat clearFormat;
+    clearFormat.setBackground(Qt::transparent);
+    clearFormat.clearForeground();
+    cursor.setCharFormat(clearFormat);
+    cursor.clearSelection();
     
     if (selected) {
         // 计算实际的结束位置

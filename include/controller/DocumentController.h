@@ -13,6 +13,9 @@
 #include "core/CharacterFormat.h"
 #include <QObject>
 
+// 前向声明
+class DocumentView;
+
 /**
  * @brief 文档控制器类
  * 
@@ -65,6 +68,19 @@ public:
      * @param paragraphIndex 段落插入位置
      */
     void insertParagraph(int paragraphIndex);
+    
+    /**
+     * @brief 在指定位置分割段落
+     * @param position 分割位置
+     * @return 新段落的索引
+     */
+    int splitParagraphAtPosition(const Position &position);
+    
+    /**
+     * @brief 设置文档视图
+     * @param view 文档视图指针
+     */
+    void setDocumentView(DocumentView *view);
 
     // 当前格式（直接格式）管理
     CharacterFormat currentDirectFormat() const;
@@ -95,6 +111,7 @@ private:
     Document *m_document;
     CharacterFormat m_currentDirectFormat;   // 当前直接格式（用于新插入文本）
     StyleManager *m_styleMgr;       // 样式管理器指针
+    DocumentView *m_documentView;   // 文档视图指针
 
     // 辅助函数
     Paragraph::Item createTextItem(const TextRun &run);

@@ -9,10 +9,11 @@
 #include "core/TextRun.h"
 #include "core/StyleManager.h"
 #include "util/ParagraphUtils.h"
+#include "view/DocumentView.h"
 #include <functional>
 
 DocumentController::DocumentController(QObject *parent)
-    : QObject(parent), m_document(nullptr), m_styleMgr(StyleManager::instance()) {}
+    : QObject(parent), m_document(nullptr), m_styleMgr(StyleManager::instance()), m_documentView(nullptr) {}
 
 /**
  * @brief 设置文档对象
@@ -165,6 +166,120 @@ void DocumentController::insertParagraph(int paragraphIndex) {
     Paragraph newPara;
     m_document->insertParagraph(paragraphIndex, newPara);
     emit documentChanged();
+}
+
+/**
+ * @brief 在指定位置分割段落
+ * 
+ * 该方法将段落在指定位置分成两部分
+ * 
+ * @param position 分割位置
+ * @return 新段落的索引
+ */
+int DocumentController::splitParagraphAtPosition(const Position &position) {
+    if (!m_document) return -1;
+    if (position.paragraphIndex < 0 || position.paragraphIndex >= m_document->paragraphCount()) {
+        return -1;
+    }
+    
+    Paragraph &originalPara = m_document->paragraph(position.paragraphIndex);
+    
+    // 安全检查：如果段落为空，直接插入新段落
+    if (originalPara.itemCount() == 0) {
+        Paragraph newPara;
+        int newParaIndex = position.paragraphIndex + 1;
+        m_document->insertParagraph(newParaIndex, newPara);
+        
+        // 强制重新计算布局
+        if (m_documentView) {
+            m_documentView->updateLayout();
+        }
+        
+        emit documentChanged();
+        return newParaIndex;
+    }
+    
+    // 创建新段落
+    Paragraph newPara;
+    
+    // 首先复制所有需要的数据，避免在操作中读取被修改的列表
+    QList<Paragraph::Item> itemsBefore;  // 保留在原段落的项
+    QList<Paragraph::Item> itemsAfter;   // 移到新段落的项
+    
+    // 处理当前光标位置之前和之后的内容
+    for (int i = 0; i < originalPara.itemCount(); ++i) {
+        const Paragraph::Item &item = originalPara.itemAt(i);
+        
+        if (i < position.itemIndex) {
+            // 在光标项之前，保留在原段落
+            itemsBefore.append(item);
+        } else if (i > position.itemIndex) {
+            // 在光标项之后，移到新段落
+            itemsAfter.append(item);
+        } else {
+            // 光标就在这个项上，需要分割
+            if (item.type == Paragraph::TextRunItem) {
+                TextRun run = item.data.value<TextRun>();
+                
+                if (position.offset <= 0) {
+                    // 光标在项开头，整个项移到新段落
+                    itemsAfter.append(item);
+                } else if (position.offset >= run.length()) {
+                    // 光标在项末尾，整个项保留在原段落
+                    itemsBefore.append(item);
+                } else {
+                    // 分割成两部分
+                    TextRun before = run;
+                    before.setText(run.text().left(position.offset));
+                    Paragraph::Item beforeItem;
+                    beforeItem.type = Paragraph::TextRunItem;
+                    beforeItem.data = QVariant::fromValue(before);
+                    itemsBefore.append(beforeItem);
+                    
+                    TextRun after = run;
+                    after.setText(run.text().mid(position.offset));
+                    Paragraph::Item afterItem;
+                    afterItem.type = Paragraph::TextRunItem;
+                    afterItem.data = QVariant::fromValue(after);
+                    itemsAfter.append(afterItem);
+                }
+            } else {
+                // 非文本项，暂时全部保留在原段落
+                itemsBefore.append(item);
+            }
+        }
+    }
+    
+    // 现在替换原段落的内容
+    originalPara.replaceItems(0, originalPara.itemCount(), itemsBefore);
+    
+    // 将 itemsAfter 添加到新段落
+    for (const Paragraph::Item &item : itemsAfter) {
+        if (item.type == Paragraph::TextRunItem) {
+            TextRun r = item.data.value<TextRun>();
+            newPara.appendText(r.text(), r.styleId(), r.directFormat());
+        }
+    }
+    
+    // 插入新段落
+    int newParaIndex = position.paragraphIndex + 1;
+    m_document->insertParagraph(newParaIndex, newPara);
+    
+    // 强制重新计算布局
+    if (m_documentView) {
+        m_documentView->updateLayout();
+    }
+    
+    emit documentChanged();
+    
+    return newParaIndex;
+}
+
+/**
+ * @brief 设置文档视图
+ */
+void DocumentController::setDocumentView(DocumentView *view) {
+    m_documentView = view;
 }
 
 CharacterFormat DocumentController::currentDirectFormat() const {

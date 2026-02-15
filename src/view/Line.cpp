@@ -9,7 +9,8 @@
  * @brief 构造函数
  */
 Line::Line()
-    : m_paragraphIndex(0), m_lineIndex(0), m_baseline(0) {}
+    : m_paragraphIndex(0), m_lineIndex(0), m_baseline(0), 
+      m_maxAscent(0), m_maxDescent(0), m_lineHeight(0) {}
 
 /**
  * @brief 构造函数
@@ -17,7 +18,8 @@ Line::Line()
  * @param lineIndex 行在段落中的索引
  */
 Line::Line(int paragraphIndex, int lineIndex)
-    : m_paragraphIndex(paragraphIndex), m_lineIndex(lineIndex), m_baseline(0) {}
+    : m_paragraphIndex(paragraphIndex), m_lineIndex(lineIndex), m_baseline(0), 
+      m_maxAscent(0), m_maxDescent(0), m_lineHeight(0) {}
 
 /**
  * @brief 获取段落索引
@@ -59,6 +61,48 @@ void Line::setBaseline(qreal baseline) {
  */
 qreal Line::baseline() const {
     return m_baseline;
+}
+
+/**
+ * @brief 设置行的最大 ascent（从基线到顶部的最大高度）
+ */
+void Line::setMaxAscent(qreal ascent) {
+    m_maxAscent = ascent;
+}
+
+/**
+ * @brief 获取行的最大 ascent
+ */
+qreal Line::maxAscent() const {
+    return m_maxAscent;
+}
+
+/**
+ * @brief 设置行的最大 descent（从基线到底部的最大高度）
+ */
+void Line::setMaxDescent(qreal descent) {
+    m_maxDescent = descent;
+}
+
+/**
+ * @brief 获取行的最大 descent
+ */
+qreal Line::maxDescent() const {
+    return m_maxDescent;
+}
+
+/**
+ * @brief 设置行高
+ */
+void Line::setLineHeight(qreal height) {
+    m_lineHeight = height;
+}
+
+/**
+ * @brief 获取行高
+ */
+qreal Line::lineHeight() const {
+    return m_lineHeight;
 }
 
 /**
@@ -162,6 +206,9 @@ bool Line::findPositionAtX(qreal x, int &segmentIndex, int &offset) const {
 void Line::clear() {
     m_rect = QRectF();
     m_baseline = 0;
+    m_maxAscent = 0;
+    m_maxDescent = 0;
+    m_lineHeight = 0;
     m_segments.clear();
     m_startPosition = Position();
     m_endPosition = Position();

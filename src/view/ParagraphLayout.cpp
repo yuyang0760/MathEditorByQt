@@ -7,7 +7,7 @@
 #include "core/CharacterFormat.h"
 #include "core/TextRun.h"
 #include "core/StyleManager.h"
-#include <QFontMetrics>
+#include <QFontMetricsF>
 #include <QTextBoundaryFinder>
 
 /**
@@ -100,15 +100,23 @@ void ParagraphLayout::layout() {
     m_height = 0;
     
     if (m_paragraph->itemCount() == 0) {
-        // 空段落，创建一个空行
         Line emptyLine(m_paragraphIndex, 0);
-        emptyLine.setRect(QRectF(0, 0, 0, 20));
-        emptyLine.setBaseline(16);
+        
+        qreal defaultAscent = 16;
+        qreal defaultDescent = 4;
+        qreal defaultLineHeight = 20;
+        
+        emptyLine.setRect(QRectF(0, 0, 0, defaultLineHeight));
+        emptyLine.setBaseline(defaultAscent);
+        emptyLine.setMaxAscent(defaultAscent);
+        emptyLine.setMaxDescent(defaultDescent);
+        emptyLine.setLineHeight(defaultLineHeight);
+        
         Position startPos = {m_paragraphIndex, 0, 0};
         emptyLine.setStartPosition(startPos);
         emptyLine.setEndPosition(startPos);
         m_lines.append(emptyLine);
-        m_height = 20;
+        m_height = defaultLineHeight;
         m_dirty = false;
         return;
     }
@@ -117,6 +125,7 @@ void ParagraphLayout::layout() {
     qreal x = 0;
     int currentLineIndex = 0;
     Line currentLine(m_paragraphIndex, currentLineIndex);
+    
     qreal currentLineMaxAscent = 0;
     qreal currentLineMaxDescent = 0;
     Position currentLineStart = {m_paragraphIndex, 0, 0};
@@ -134,119 +143,78 @@ void ParagraphLayout::layout() {
                 qreal ascent, descent;
                 getTextMetrics(run, ascent, descent);
                 
-                // 尝试在空格处换行
+                // 简单处理：一次性添加剩余文本，不换行
                 int wrapOffset = textLength;
                 qreal textWidth = calculateTextWidth(run, currentOffset, wrapOffset - currentOffset);
                 
-                // 如果当前行加上这段文本会超过最大宽度
-                if (x + textWidth > m_maxWidth && x > 0) {
-                    // 尝试找到合适的换行位置
-                    QString text = run.text().mid(currentOffset);
-                    int lastSpace = text.lastIndexOf(' ');
-                    if (lastSpace > 0) {
-                        wrapOffset = currentOffset + lastSpace + 1;
-                        textWidth = calculateTextWidth(run, currentOffset, wrapOffset - currentOffset);
-                    } else {
-                        // 没有空格，强制换行
-                        wrapOffset = currentOffset;
-                    }
-                    
-                    if (wrapOffset > currentOffset) {
-                        // 有文本可以添加到当前行
-                        LineSegment segment(itemIndex, currentOffset, wrapOffset, 
-                                           x, textWidth, ascent, descent);
-                        currentLine.addSegment(segment);
-                        
-                        if (!hasStartPosition) {
-                            currentLineStart = {m_paragraphIndex, itemIndex, currentOffset};
-                            hasStartPosition = true;
-                        }
-                        
-                        x += textWidth;
-                        currentLineMaxAscent = qMax(currentLineMaxAscent, ascent);
-                        currentLineMaxDescent = qMax(currentLineMaxDescent, descent);
-                        currentOffset = wrapOffset;
-                    }
-                    
-                    // 结束当前行
-                    qreal lineHeight = currentLineMaxAscent + currentLineMaxDescent;
-                    currentLine.setRect(QRectF(0, y, x, lineHeight));
-                    currentLine.setBaseline(currentLineMaxAscent);
-                    currentLine.setStartPosition(currentLineStart);
-                    
-                    Position endPos = {m_paragraphIndex, itemIndex, currentOffset};
-                    currentLine.setEndPosition(endPos);
-                    
-                    m_lines.append(currentLine);
-                    m_height += lineHeight;
-                    y += lineHeight;
-                    
-                    // 开始新行
-                    currentLineIndex++;
-                    currentLine = Line(m_paragraphIndex, currentLineIndex);
-                    x = 0;
-                    currentLineMaxAscent = 0;
-                    currentLineMaxDescent = 0;
-                    hasStartPosition = false;
+                LineSegment segment(itemIndex, currentOffset, wrapOffset, 
+                                   x, textWidth, ascent, descent);
+                currentLine.addSegment(segment);
+                
+                if (!hasStartPosition) {
+                    currentLineStart = {m_paragraphIndex, itemIndex, currentOffset};
+                    hasStartPosition = true;
                 }
                 
-                if (currentOffset < textLength) {
-                    // 添加剩余文本到当前行
-                    wrapOffset = textLength;
-                    textWidth = calculateTextWidth(run, currentOffset, wrapOffset - currentOffset);
-                    
-                    LineSegment segment(itemIndex, currentOffset, wrapOffset, 
-                                       x, textWidth, ascent, descent);
-                    currentLine.addSegment(segment);
-                    
-                    if (!hasStartPosition) {
-                        currentLineStart = {m_paragraphIndex, itemIndex, currentOffset};
-                        hasStartPosition = true;
-                    }
-                    
-                    x += textWidth;
-                    currentLineMaxAscent = qMax(currentLineMaxAscent, ascent);
-                    currentLineMaxDescent = qMax(currentLineMaxDescent, descent);
-                    currentOffset = wrapOffset;
-                }
+                x += textWidth;
+                currentLineMaxAscent = qMax(currentLineMaxAscent, ascent);
+                currentLineMaxDescent = qMax(currentLineMaxDescent, descent);
+                currentOffset = wrapOffset;
             }
         }
     }
     
-    // 添加最后一行
     if (!currentLine.segments().isEmpty() || m_lines.isEmpty()) {
-        qreal lineHeight = currentLineMaxAscent + currentLineMaxDescent;
-        if (lineHeight <= 0) {
-            lineHeight = 20;
-            currentLineMaxAscent = 16;
-        }
-        
-        currentLine.setRect(QRectF(0, y, x, lineHeight));
-        currentLine.setBaseline(currentLineMaxAscent);
-        
-        if (!hasStartPosition) {
-            currentLineStart = {m_paragraphIndex, 0, 0};
-        }
-        currentLine.setStartPosition(currentLineStart);
-        
-        int lastItem = m_paragraph->itemCount() - 1;
-        int lastOffset = 0;
-        if (lastItem >= 0) {
-            const Paragraph::Item &lastItemObj = m_paragraph->itemAt(lastItem);
-            if (lastItemObj.type == Paragraph::TextRunItem) {
-                TextRun lastRun = lastItemObj.data.value<TextRun>();
-                lastOffset = lastRun.length();
-            }
-        }
-        Position endPos = {m_paragraphIndex, lastItem, lastOffset};
-        currentLine.setEndPosition(endPos);
-        
+        finishLine(currentLine, y, x, currentLineMaxAscent, 
+                   currentLineMaxDescent, currentLineStart, 
+                   m_paragraph->itemCount() - 1, 0);
         m_lines.append(currentLine);
-        m_height += lineHeight;
+        m_height += currentLine.lineHeight();
     }
     
     m_dirty = false;
     emit layoutChanged();
+}
+
+/**
+ * @brief 完成一行的布局计算
+ */
+void ParagraphLayout::finishLine(Line &line, qreal y, qreal width, 
+                                  qreal maxAscent, qreal maxDescent,
+                                  const Position &startPos,
+                                  int lastItemIndex, int lastOffset) {
+    qreal lineHeight = maxAscent + maxDescent;
+    
+    if (lineHeight <= 0) {
+        lineHeight = 20;
+        maxAscent = 16;
+        maxDescent = 4;
+    }
+    
+    line.setRect(QRectF(0, y, width, lineHeight));
+    line.setBaseline(maxAscent);
+    line.setMaxAscent(maxAscent);
+    line.setMaxDescent(maxDescent);
+    line.setLineHeight(lineHeight);
+    
+    line.setStartPosition(startPos);
+    
+    Position endPos;
+    if (lastItemIndex >= 0 && m_paragraph && lastItemIndex < m_paragraph->itemCount()) {
+        const Paragraph::Item &lastItemObj = m_paragraph->itemAt(lastItemIndex);
+        if (lastItemObj.type == Paragraph::TextRunItem) {
+            TextRun lastRun = lastItemObj.data.value<TextRun>();
+            if (lastOffset == 0) {
+                lastOffset = lastRun.length();
+            }
+            endPos = {m_paragraphIndex, lastItemIndex, lastOffset};
+        } else {
+            endPos = {m_paragraphIndex, lastItemIndex, 0};
+        }
+    } else {
+        endPos = {m_paragraphIndex, 0, 0};
+    }
+    line.setEndPosition(endPos);
 }
 
 /**
@@ -291,11 +259,13 @@ int ParagraphLayout::findLineForPosition(const Position &pos) const {
         }
     }
     
-    // 如果找不到，根据位置估算
-    if (pos < m_lines.first().startPosition()) {
-        return 0;
+    if (!m_lines.isEmpty()) {
+        if (pos < m_lines.first().startPosition()) {
+            return 0;
+        }
+        return m_lines.size() - 1;
     }
-    return m_lines.size() - 1;
+    return 0;
 }
 
 /**
@@ -308,7 +278,6 @@ Position ParagraphLayout::positionFromPoint(const QPointF &point) const {
     
     qreal searchY = point.y();
     
-    // 找到包含 y 坐标的行
     int lineIndex = 0;
     for (int i = 0; i < m_lines.size(); ++i) {
         const Line &line = m_lines[i];
@@ -324,26 +293,21 @@ Position ParagraphLayout::positionFromPoint(const QPointF &point) const {
     const Line &targetLine = m_lines[lineIndex];
     qreal localX = point.x();
     
-    // 如果 x 在最左边，返回行起始位置
     if (localX <= 0) {
         return targetLine.startPosition();
     }
     
-    // 如果 x 在最右边，返回行结束位置
     if (localX >= targetLine.rect().right()) {
         return targetLine.endPosition();
     }
     
-    // 查找包含 x 的片段
     for (const LineSegment &segment : targetLine.segments()) {
         if (localX >= segment.x && localX <= segment.x + segment.width) {
-            // 在片段内部，精确计算偏移
             if (m_paragraph && segment.itemIndex >= 0 && segment.itemIndex < m_paragraph->itemCount()) {
                 const Paragraph::Item &item = m_paragraph->itemAt(segment.itemIndex);
                 if (item.type == Paragraph::TextRunItem) {
                     TextRun run = item.data.value<TextRun>();
                     
-                    // 逐字符计算，找到最接近的位置
                     int bestOffset = segment.offsetStart;
                     qreal bestDiff = qAbs(localX - segment.x);
                     
@@ -364,7 +328,6 @@ Position ParagraphLayout::positionFromPoint(const QPointF &point) const {
             return {m_paragraphIndex, segment.itemIndex, segment.offsetStart};
         }
         
-        // 如果 x 在当前片段之前，返回片段起始
         if (localX < segment.x) {
             return {m_paragraphIndex, segment.itemIndex, segment.offsetStart};
         }
@@ -388,13 +351,11 @@ QPointF ParagraphLayout::pointFromPosition(const Position &pos) const {
     
     const Line &line = m_lines[lineIndex];
     
-    // 在该行的片段中查找
     for (const LineSegment &segment : line.segments()) {
         if (segment.itemIndex == pos.itemIndex && 
             pos.offset >= segment.offsetStart && 
             pos.offset <= segment.offsetEnd) {
             
-            // 计算从片段开头到偏移位置的文本宽度
             qreal x = segment.x;
             if (pos.offset > segment.offsetStart && m_paragraph) {
                 if (segment.itemIndex >= 0 && segment.itemIndex < m_paragraph->itemCount()) {
@@ -406,12 +367,10 @@ QPointF ParagraphLayout::pointFromPosition(const Position &pos) const {
                 }
             }
             
-            // 返回线的顶部 + 基线位置（与文本项的位置计算方式一致）
-    return QPointF(x, line.baseline());
+            return QPointF(x, line.rect().top() + line.baseline());
         }
     }
     
-    // 如果没有找到，返回行的起始位置
     return QPointF(line.rect().left(), line.rect().top() + line.baseline());
 }
 

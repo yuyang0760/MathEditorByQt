@@ -13,6 +13,7 @@
 #include <QInputMethod>
 #include <QFontMetrics>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include "core/CharacterFormat.h"
 #include "core/StyleManager.h"
 
@@ -29,6 +30,7 @@ DocumentView::DocumentView(QWidget *parent)
 {
     setScene(m_scene);
     m_scene->addItem(m_cursor);
+    m_cursor->setZValue(100);  // 设置光标最高层级，确保在所有文本项前面
     setDragMode(NoDrag);
     setRenderHint(QPainter::Antialiasing);
     setAlignment(Qt::AlignLeft | Qt::AlignTop);
@@ -193,14 +195,24 @@ void DocumentView::rebuildScene() {
     clearGraphicsItems();
     if (!m_document) return;
     
+    // 标记所有布局为脏，但不清除
+    for (auto layout : m_paragraphLayouts) {
+        layout->markDirty();
+    }
     updateAllLayouts();
     
     qreal y = 10;
     qreal leftMargin = 10;
+    qreal paragraphSpacing = 8; // 段落间距
     
     for (int p = 0; p < m_document->paragraphCount(); ++p) {
         ParagraphLayout *layout = getOrCreateLayout(p);
         if (!layout) continue;
+        
+        // 如果不是第一个段落，添加段落间距
+        if (p > 0) {
+            y += paragraphSpacing;
+        }
         
         const QList<Line> &lines = layout->lines();
         
@@ -221,7 +233,10 @@ void DocumentView::rebuildScene() {
                         subRun.setDirectFormat(fullRun.directFormat());
                         
                         TextRunItem *titem = new TextRunItem(subRun, p, seg.itemIndex, seg.offsetStart, seg.offsetEnd);
-                        titem->setPos(leftMargin + seg.x, y + line.baseline() - seg.ascent);
+                        
+                        // 精确计算文本位置，考虑基线、行高、字体等
+                        qreal textY = y + line.baseline() - seg.ascent;
+                        titem->setPos(leftMargin + seg.x, textY);
                         
                         if (m_selection.isValid() && !m_selection.isEmpty()) {
                             Position segStart = {p, seg.itemIndex, seg.offsetStart};
@@ -289,14 +304,9 @@ void DocumentView::clearGraphicsItems() {
  * @brief 更新布局
  */
 void DocumentView::updateLayout() {
-    // 保存当前视图中心点（场景坐标）
-    QPointF center = mapToScene(viewport()->rect().center());
-    
+    // 简单更新：清除布局、重建场景、确保光标可见
     clearLayouts();
     rebuildScene();
-    
-    // 恢复视图中心
-    centerOn(center);
     ensureCursorVisible();
 }
 
@@ -381,6 +391,7 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
     
     qreal searchY = point.y() - 10;
     qreal cumulativeY = 0;
+    qreal paragraphSpacing = 8;
     
     for (int p = 0; p < m_document->paragraphCount(); ++p) {
         DocumentView *nonConstThis = const_cast<DocumentView*>(this);
@@ -409,6 +420,11 @@ Position DocumentView::positionFromPoint(const QPointF &point) const {
         }
         
         cumulativeY += paraHeight;
+        
+        // 添加段落间距
+        if (p < m_document->paragraphCount() - 1) {
+            cumulativeY += paragraphSpacing;
+        }
     }
     
     if (m_document->paragraphCount() > 0) {
@@ -431,6 +447,7 @@ QPointF DocumentView::pointFromPosition(const Position &pos) const {
         return QPointF(10, 10);
     
     qreal y = 10;
+    qreal paragraphSpacing = 8;
     
     for (int p = 0; p < pos.paragraphIndex; ++p) {
         DocumentView *nonConstThis = const_cast<DocumentView*>(this);
@@ -438,6 +455,16 @@ QPointF DocumentView::pointFromPosition(const Position &pos) const {
         if (layout) {
             y += layout->height();
         }
+        
+        // 如果不是第一个段落，添加段落间距
+        if (p < pos.paragraphIndex - 1) {
+            y += paragraphSpacing;
+        }
+    }
+    
+    // 如果不是第一个段落，添加段落间距
+    if (pos.paragraphIndex > 0) {
+        y += paragraphSpacing;
     }
     
     DocumentView *nonConstThis = const_cast<DocumentView*>(this);
